@@ -1,0 +1,64 @@
+# Build directory
+build/
+builddir/
+
+# Meson files
+.mesonpy-*
+meson-logs/
+meson-private/
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CMake (in case someone uses it)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+
+# Generated files
+*.pb.h
+*.pb.cc
+*.grpc.pb.h
+*.grpc.pb.cc
+
+# Testing
+Testing/
+*.gcov
+*.gcda
+*.gcno
+
+# Documentation
+docs/_build/
+docs/html/
+docs/latex/
