@@ -21,10 +21,13 @@ if sources.length() > 0
   )
 endif
 
-# Executable (if needed)
-# executable('e2sar-utils',
-#   'main.cpp',
-#   include_directories : inc_dir,
-#   dependencies : project_deps,
-#   install : true,
-# )
+# Boost program_options for command-line parsing
+boost_po_dep = dependency('boost', modules: ['program_options'])
+
+# ROOT reader executable
+root_reader_exe = executable('root-reader',
+  'root_reader.cpp',
+  include_directories : inc_dir,
+  dependencies : [boost_po_dep, root_dep, e2sar_dep],
+  install : true,
+)

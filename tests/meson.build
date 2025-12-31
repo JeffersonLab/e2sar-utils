@@ -20,3 +20,11 @@ if get_option('enable_tests')
   #   test('unit_tests', test_exe)
   # endif
 endif
+
+# E2SAR integration test (temporary)
+test_e2sar_exe = executable('test-e2sar',
+  'test_e2sar.cpp',
+  include_directories : inc_dir,
+  dependencies : [e2sar_dep],
+  install : false,
+)
