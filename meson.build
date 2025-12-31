@@ -1,5 +1,5 @@
 project('e2sar-utils', 'cpp',
-  version : '0.1.0',
+  version : files('VERSION.txt'),
   default_options : [
     'warning_level=3',
     'cpp_std=c++17',
@@ -41,13 +41,20 @@ if not root_dep.found()
 endif
 
 # E2SAR dependency - EJFAT Event Segmentation And Reassembly
-# Using explicit path since E2SAR is installed in non-standard location
-e2sar_install_root = '/Users/baldin/workspaces/workspace-ejfat/e2sar-install'
+# Get e2sar from pkg-config, but manually add its missing dependencies
+# The e2sar.pc file doesn't declare all transitive dependencies needed for static linking
+e2sar_base = dependency('e2sar', method: 'pkg-config', required: true)
+
 e2sar_dep = declare_dependency(
-  include_directories: include_directories(e2sar_install_root / 'include'),
-  dependencies: [boost_url_dep, boost_log_dep, boost_thread_dep, boost_chrono_dep],  # E2SAR requires Boost.URL, Boost.Log, Boost.Thread, Boost.Chrono
-  link_args: ['-L' + e2sar_install_root / 'lib', '-le2sar'],
-  version: '0.1.5'
+  dependencies: [
+    e2sar_base,
+    boost_url_dep,
+    boost_log_dep,
+    boost_thread_dep,
+    boost_chrono_dep,
+    grpc_dep,
+    protobuf_dep
+  ]
 )
 
 # Collect all dependencies
