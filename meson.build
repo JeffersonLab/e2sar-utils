@@ -11,11 +11,15 @@ project('e2sar-utils', 'cpp',
 cxx = meson.get_compiler('cpp')
 
 # Compile-time dependencies
-boost_dep = dependency('boost', version : '>=1.89.0')
-boost_url_dep = dependency('boost', modules: ['url'], version : '>=1.89.0')
+# Boost dependencies: program_options used by root-reader, others required by e2sar
+# Note: Boost doesn't provide .pc files, so we must declare them explicitly even though
+# e2sar.pc lists them in Requires (which pkg-config cannot resolve for Boost)
+boost_program_options_dep = dependency('boost', modules: ['program_options'], version : '>=1.89.0')
 boost_log_dep = dependency('boost', modules: ['log'], version : '>=1.89.0')
+boost_url_dep = dependency('boost', modules: ['url'], version : '>=1.89.0')
 boost_thread_dep = dependency('boost', modules: ['thread'], version : '>=1.89.0')
 boost_chrono_dep = dependency('boost', modules: ['chrono'], version : '>=1.89.0')
+boost_filesystem_dep = dependency('boost', modules: ['filesystem'], version : '>=1.89.0')
 threads_dep = dependency('threads')
 
 # Runtime dependencies
@@ -41,28 +45,20 @@ if not root_dep.found()
 endif
 
 # E2SAR dependency - EJFAT Event Segmentation And Reassembly
-# Get e2sar from pkg-config, but manually add its missing dependencies
-# The e2sar.pc file doesn't declare all transitive dependencies needed for static linking
-e2sar_base = dependency('e2sar', method: 'pkg-config', required: true)
-
-e2sar_dep = declare_dependency(
-  dependencies: [
-    e2sar_base,
-    boost_url_dep,
-    boost_log_dep,
-    boost_thread_dep,
-    boost_chrono_dep,
-    grpc_dep,
-    protobuf_dep
-  ]
-)
+# The e2sar.pc now has Boost linker flags in Libs.private and grpc++/protobuf in Requires
+# We still need to declare Boost modules explicitly for header paths (Boost has no .pc files)
+e2sar_dep = dependency('e2sar', method: 'pkg-config', required: true)
 
 # Collect all dependencies
+# Note: Boost modules declared for headers (no .pc files), linker flags come from e2sar.pc
 project_deps = [
-  boost_dep,
+  boost_program_options_dep,
+  boost_log_dep,
+  boost_url_dep,
+  boost_thread_dep,
+  boost_chrono_dep,
+  boost_filesystem_dep,
   threads_dep,
-  grpc_dep,
-  protobuf_dep,
   root_dep,
   e2sar_dep
 ]

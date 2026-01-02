@@ -21,13 +21,20 @@ if sources.length() > 0
   )
 endif
 
-# Boost program_options for command-line parsing
-boost_po_dep = dependency('boost', modules: ['program_options'])
-
 # ROOT reader executable
+# Needs all Boost modules that e2sar depends on (for headers and linking)
 root_reader_exe = executable('root-reader',
   'root_reader.cpp',
   include_directories : inc_dir,
-  dependencies : [boost_po_dep, root_dep, e2sar_dep],
+  dependencies : [
+    boost_program_options_dep,
+    boost_log_dep,
+    boost_url_dep,
+    boost_thread_dep,
+    boost_chrono_dep,
+    boost_filesystem_dep,
+    root_dep,
+    e2sar_dep
+  ],
   install : true,
 )

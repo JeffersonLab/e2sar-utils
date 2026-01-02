@@ -22,9 +22,17 @@ if get_option('enable_tests')
 endif
 
 # E2SAR integration test (temporary)
+# Needs Boost header paths since e2sar headers include Boost
 test_e2sar_exe = executable('test-e2sar',
   'test_e2sar.cpp',
   include_directories : inc_dir,
-  dependencies : [e2sar_dep],
+  dependencies : [
+    e2sar_dep,
+    boost_log_dep,
+    boost_url_dep,
+    boost_thread_dep,
+    boost_chrono_dep,
+    boost_filesystem_dep
+  ],
   install : false,
 )
