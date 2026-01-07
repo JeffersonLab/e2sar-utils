@@ -23,8 +23,8 @@ endif
 
 # ROOT reader executable
 # Needs all Boost modules that e2sar depends on (for headers and linking)
-root_reader_exe = executable('root-reader',
-  'root_reader.cpp',
+e2sar_root_exe = executable('e2sar-root',
+  'e2sar_root.cpp',
   include_directories : inc_dir,
   dependencies : [
     boost_program_options_dep,
