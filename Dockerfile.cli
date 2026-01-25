@@ -1,0 +1,90 @@
+# syntax=docker/dockerfile:1
+
+# Control plane CLI tools for EJFAT
+#
+# This is a two-stage build, with compile and deploy stages
+
+#
+# Stage 'base': image with dependencies
+#
+FROM ubuntu:24.04 AS base
+
+ENV DISTRO=ubuntu24
+ENV HOME=/home/ubuntu
+ENV LD_LIBRARY_PATH=/usr/local/lib
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+ENV PATH=/usr/local/bin:$PATH
+ENV E2SARINSTALL=/e2sar-install
+ENV E2SAR_VER=0.3.0a1
+ENV E2SAR_DEB=E2SAR-${E2SAR_VER}-main-ubuntu-24.04/e2sar_${E2SAR_VER}_amd64.deb
+ENV E2SAR_DEB_URL=https://github.com/JeffersonLab/E2SAR/releases/download/${E2SAR_DEB}
+ENV ROOT_INSTALL=/rootlib
+ENV ROOT_VER=6.36.06
+ENV ROOT_TAR=root_v${ROOT_VER}.Linux-ubuntu24.04-x86_64-gcc13.3.tar.gz
+ENV ROOT_URL=https://root.cern/download/${ROOT_TAR}
+
+RUN mkdir ${E2SARINSTALL} && mkdir ${ROOT_INSTALL}
+# build system
+RUN apt-get -yq update && apt-get -yq install python3-pip openssl gdb wget libre2-dev && apt-get clean
+
+# add various network utilities for debugging
+RUN apt-get -yq install netcat-traditional net-tools bc ethtool iproute2 iputils-ping nano && apt-get clean
+
+RUN pip3 install --break-system-packages scapy
+
+# install E2SAR
+RUN wget -q -O e2sar.deb ${E2SAR_DEB_URL} && dpkg -i ./e2sar.deb
+
+# install ROOT deps
+RUN apt-get -yq install binutils cmake dpkg-dev g++ gcc libssl-dev git libx11-dev libxext-dev libxft-dev libxpm-dev python3 libtbb-dev libvdt-dev libgif-dev && apt-get clean
+
+# install ROOT
+RUN wget -q -O root.tar.gz ${ROOT_URL} && tar -zxf root.tar.gz -C ${ROOT_INSTALL}
+RUN cd ${ROOT_INSTALL}/root/bin; . ./thisroot.sh 
+
+#
+# Stage 'compile'
+#
+FROM base AS compile
+
+ENV SRC_DIR=/src
+WORKDIR $SRC_DIR
+
+COPY . /src/
+
+# install build-deps
+RUN apt-get -yq update && apt-get -yq install python3-pip build-essential autoconf cmake libtool pkg-config libglib2.0-dev ninja-build libssl-dev libsystemd-dev protobuf-compiler && apt-get clean
+
+# install build deps
+RUN pip3 install --break-system-packages pybind11 meson
+
+# blow away build/ if it got copied by accident
+RUN rm -rf build/
+
+# create a build configuration
+RUN cd ${ROOT_INSTALL}/root/bin && \
+    . ./thisroot.sh &&  \
+    cd ${SRC_DIR} && \
+    PATH=$HOME/.local/bin:/usr/local/bin:$PATH BOOST_ROOT=/usr/local/ LD_LIBRARY_PATH=${LD_LIBRARY_PATH} meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix  ${E2SARINSTALL} build &&\
+    sed -i 's/-std=c++11//g' build/build.ninja
+RUN BOOST_ROOT=/usr/local meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix ${E2SARINSTALL} build
+
+# compile
+RUN meson compile -C build -j 2
+
+# install
+RUN meson install -C build
+
+#
+# Stage 'deploy'
+#
+FROM base AS deploy
+
+WORKDIR ${E2SARINSTALL}
+ENV PATH=${E2SARINSTALL}/bin:$PATH
+
+COPY --from=compile $E2SARINSTALL $E2SARINSTALL
+COPY --from=compile $ROOT_INSTALL $ROOT_INSTALL
+COPY --from=compile $HOME $HOME
+
+CMD ["e2sar-root"]
