@@ -1,13 +1,23 @@
 # syntax=docker/dockerfile:1
 
-# Control plane CLI tools for EJFAT
+# Control plane CLI tools for EJFAT (Optimized)
 #
-# This is a two-stage build, with compile and deploy stages
+# This is a multi-stage build optimized for smaller final image size:
+#   - base-runtime: Minimal dependencies for running the application
+#   - base-build: Adds build tools (example for compiling from source)
+#   - compile: Builds the application
+#   - deploy: Final slim image
+#   - deploy-debug: Optional variant with network debugging tools
+#
+# Build commands:
+#   Production:  docker build --target deploy -t e2sar-utils:slim -f Dockerfile.opt .
+#   Debug:       docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.opt .
+#   Build stage: docker build --target compile -t e2sar-utils:build -f Dockerfile.opt .
 
 #
-# Stage 'base': image with dependencies
+# Stage 'base-runtime': Minimal runtime dependencies
 #
-FROM ubuntu:24.04 AS base
+FROM ubuntu:24.04 AS base-runtime
 
 ENV DISTRO=ubuntu24
 ENV HOME=/home/ubuntu
@@ -24,67 +34,152 @@ ENV ROOT_TAR=root_v${ROOT_VER}.Linux-ubuntu24.04-x86_64-gcc13.3.tar.gz
 ENV ROOT_URL=https://root.cern/download/${ROOT_TAR}
 
 RUN mkdir ${E2SARINSTALL} && mkdir ${ROOT_INSTALL}
-# build system
-RUN apt-get -yq update && apt-get -yq install python3-pip openssl gdb wget libre2-dev && apt-get clean
 
-# add various network utilities for debugging
-RUN apt-get -yq install netcat-traditional net-tools bc ethtool iproute2 iputils-ping nano && apt-get clean
+# Runtime dependencies only (libraries needed by ROOT and E2SAR at runtime)
+RUN apt-get -yq update && \
+    apt-get -yq install --no-install-recommends \
+        ca-certificates \
+        openssl \
+        libre2-dev \
+        libtbb12 \
+        libvdt0.4 \
+        libgif7 \
+        libx11-6 \
+        libxext6 \
+        libxft2 \
+        libxpm4 && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN pip3 install --break-system-packages scapy
+# Install E2SAR from pre-built .deb package
+RUN apt-get -yq update && \
+    apt-get -yq install --no-install-recommends wget && \
+    wget -q -O e2sar.deb ${E2SAR_DEB_URL} && \
+    dpkg -i ./e2sar.deb && \
+    rm e2sar.deb && \
+    apt-get -yq purge wget && \
+    apt-get -yq autoremove && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
-# install E2SAR
-RUN wget -q -O e2sar.deb ${E2SAR_DEB_URL} && dpkg -i ./e2sar.deb
-
-# install ROOT deps
-RUN apt-get -yq install binutils cmake dpkg-dev g++ gcc libssl-dev git libx11-dev libxext-dev libxft-dev libxpm-dev python3 libtbb-dev libvdt-dev libgif-dev && apt-get clean
-
-# install ROOT
-RUN wget -q -O root.tar.gz ${ROOT_URL} && tar -zxf root.tar.gz -C ${ROOT_INSTALL}
-RUN cd ${ROOT_INSTALL}/root/bin; . ./thisroot.sh 
+# Install ROOT (pre-built binary distribution)
+RUN apt-get -yq update && \
+    apt-get -yq install --no-install-recommends wget && \
+    wget -q -O root.tar.gz ${ROOT_URL} && \
+    tar -zxf root.tar.gz -C ${ROOT_INSTALL} && \
+    rm root.tar.gz && \
+    apt-get -yq purge wget && \
+    apt-get -yq autoremove && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 #
-# Stage 'compile'
+# Stage 'base-build': Adds build tools for compilation
 #
-FROM base AS compile
+# This stage demonstrates all dependencies needed to compile the code from source.
+# It extends base-runtime with build-time dependencies.
+#
+FROM base-runtime AS base-build
+
+# Build system and compilation dependencies
+# - build-essential: gcc, g++, make, etc.
+# - meson/ninja: Build system used by this project
+# - cmake: Required by some dependencies
+# - pkg-config: For finding installed libraries
+# - protobuf-compiler: For E2SAR gRPC communication
+# - gdb: Debugger (optional, useful during development)
+RUN apt-get -yq update && \
+    apt-get -yq install \
+        python3-pip \
+        build-essential \
+        autoconf \
+        cmake \
+        libtool \
+        pkg-config \
+        libglib2.0-dev \
+        ninja-build \
+        libssl-dev \
+        libsystemd-dev \
+        protobuf-compiler \
+        gdb \
+        wget && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Python build tools
+# - meson: Build system
+# - pybind11: Python bindings (if needed)
+RUN pip3 install --break-system-packages pybind11 meson
+
+#
+# Stage 'compile': Build the application from source
+#
+FROM base-build AS compile
 
 ENV SRC_DIR=/src
 WORKDIR $SRC_DIR
 
+# Copy source code
 COPY . /src/
 
-# install build-deps
-RUN apt-get -yq update && apt-get -yq install python3-pip build-essential autoconf cmake libtool pkg-config libglib2.0-dev ninja-build libssl-dev libsystemd-dev protobuf-compiler && apt-get clean
-
-# install build deps
-RUN pip3 install --break-system-packages pybind11 meson
-
-# blow away build/ if it got copied by accident
+# Clean any local build artifacts that may have been copied
 RUN rm -rf build/
 
-# create a build configuration
+# Configure and build
+# 1. Source ROOT environment (thisroot.sh sets up ROOT paths)
+# 2. Run meson setup to configure the build
+# 3. Fix C++ standard flag conflict (ROOT uses newer standard)
+# 4. Compile with meson
+# 5. Install to E2SARINSTALL prefix
 RUN cd ${ROOT_INSTALL}/root/bin && \
-    . ./thisroot.sh &&  \
+    . ./thisroot.sh && \
     cd ${SRC_DIR} && \
-    PATH=$HOME/.local/bin:/usr/local/bin:$PATH BOOST_ROOT=/usr/local/ LD_LIBRARY_PATH=${LD_LIBRARY_PATH} meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix  ${E2SARINSTALL} build &&\
-    sed -i 's/-std=c++11//g' build/build.ninja
-RUN BOOST_ROOT=/usr/local meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix ${E2SARINSTALL} build
-
-# compile
-RUN meson compile -C build -j 2
-
-# install
-RUN meson install -C build
+    PATH=$HOME/.local/bin:/usr/local/bin:$PATH \
+    BOOST_ROOT=/usr/local/ \
+    LD_LIBRARY_PATH=${LD_LIBRARY_PATH} \
+    meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix ${E2SARINSTALL} build && \
+    sed -i 's/-std=c++11//g' build/build.ninja && \
+    meson compile -C build -j 2 && \
+    meson install -C build
 
 #
-# Stage 'deploy'
+# Stage 'deploy': Final slim production image
 #
-FROM base AS deploy
+# This stage contains only what's needed to run the application:
+# - Runtime libraries (from base-runtime)
+# - Compiled application binaries
+#
+FROM base-runtime AS deploy
 
 WORKDIR ${E2SARINSTALL}
 ENV PATH=${E2SARINSTALL}/bin:$PATH
 
+# Copy only the compiled application from the compile stage
 COPY --from=compile $E2SARINSTALL $E2SARINSTALL
-COPY --from=compile $ROOT_INSTALL $ROOT_INSTALL
-COPY --from=compile $HOME $HOME
+
+CMD ["e2sar-root"]
+
+#
+# Stage 'deploy-debug': Optional debug variant with network tools
+#
+# Use this image when you need to debug network issues or inspect traffic.
+# Build with: docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.opt .
+#
+FROM deploy AS deploy-debug
+
+RUN apt-get -yq update && \
+    apt-get -yq install --no-install-recommends \
+        netcat-traditional \
+        net-tools \
+        bc \
+        ethtool \
+        iproute2 \
+        iputils-ping \
+        nano \
+        tcpdump \
+        python3-pip && \
+    pip3 install --break-system-packages scapy && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 CMD ["e2sar-root"]
