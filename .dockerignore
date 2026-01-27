@@ -15,3 +15,5 @@ Dockerfile
 dalitz_toy_data_*
 
 .claude
+
+build

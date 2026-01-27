@@ -122,9 +122,6 @@ WORKDIR $SRC_DIR
 # Copy source code
 COPY . /src/
 
-# Clean any local build artifacts that may have been copied
-RUN rm -rf build/
-
 # Configure and build
 # 1. Source ROOT environment (thisroot.sh sets up ROOT paths)
 # 2. Run meson setup to configure the build
