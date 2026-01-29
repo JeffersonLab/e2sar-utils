@@ -266,6 +266,42 @@ Location: `dalitz_toy_data_0/dalitz_root_file_0.root`
 # - E2SAR integration successful
 ```
 
+### Loopback Integration Test (REQUIRED after code changes)
+
+**Always run this test after modifying e2sar_root.cpp:**
+
+```bash
+# Run the full loopback test (sender + receiver)
+./tests/test_loopback.sh
+
+# With custom options for more thorough testing
+./tests/test_loopback.sh --timeout 60 --bufsize 2 --files 3
+```
+
+The test:
+1. Starts receiver on loopback interface (127.0.0.1)
+2. Runs sender with parallel file processing (2 files by default)
+3. Verifies all buffers sent == files received
+4. Reports PASS/FAIL
+
+**Options:**
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--timeout N` | 30 | Receiver wait time in seconds |
+| `--bufsize N` | 1 | Batch size in MB |
+| `--mtu N` | 9000 | MTU size (jumbo frames) |
+| `--files N` | 2 | Number of parallel file streams |
+
+**Expected output on success:**
+```
+[INFO] ========== Test Results ==========
+  Buffers sent:     630
+  Files received:   630
+  Send errors:      0
+
+[INFO] TEST PASSED - All buffers received successfully
+```
+
 ## Performance Characteristics
 
 ### Memory Usage
