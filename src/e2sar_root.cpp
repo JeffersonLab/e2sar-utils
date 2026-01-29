@@ -52,6 +52,7 @@ struct CommandLineArgs {
     int event_timeout_ms = 500;  // Event reassembly timeout
     bool withCP;
     float rateGbps;
+    bool validate;
 };
 
 // Structure to hold the four reconstructed particles for one event
@@ -249,19 +250,21 @@ bool writeMemoryMappedFile(const std::string& filename, const uint8_t* data, siz
 
 // Initialize and start E2SAR Segmenter
 // Returns unique_ptr for RAII-based cleanup
+// Also creates LBManager and registers sender when control plane is enabled
 std::unique_ptr<e2sar::Segmenter> initializeSegmenter(
     const std::string& uri_str,
     uint16_t data_id,
     uint32_t event_src_id,
     uint16_t mtu,
     bool withCP,
-    float rateGbps) {
+    float rateGbps,
+    bool validateCert) {
 
     std::cout << "\nInitializing E2SAR Segmenter..." << std::endl;
 
     // Parse EJFAT URI
     auto uri_result = e2sar::EjfatURI::getFromString(uri_str,
-        e2sar::EjfatURI::TokenType::admin, false);
+        e2sar::EjfatURI::TokenType::instance, false);
 
     if (uri_result.has_error()) {
         std::cerr << "Error parsing URI: " << uri_result.error().message() << std::endl;
@@ -269,6 +272,22 @@ std::unique_ptr<e2sar::Segmenter> initializeSegmenter(
     }
 
     e2sar::EjfatURI uri = uri_result.value();
+
+    // If using control plane, register sender with LBManager
+    if (withCP) {
+        std::cout << "Registering sender with load balancer..." << std::endl;
+
+        // Create LBManager with validation setting
+        e2sar::LBManager lbm(uri, validateCert);
+
+        // Add sender using auto-detected IP address
+        auto addres = lbm.addSenderSelf();
+        if (addres.has_error()) {
+            std::cerr << "Unable to add sender to allow list: " << addres.error().message() << std::endl;
+            return nullptr;
+        }
+        std::cout << "  Sender registered successfully" << std::endl;
+    }
 
     // Create Segmenter with configurable MTU
     e2sar::Segmenter::SegmenterFlags sflags;
@@ -329,7 +348,9 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     // Create Reassembler flags
     e2sar::Reassembler::ReassemblerFlags rflags;
     rflags.useCP = withCP;
-    rflags.withLBHeader = true;  // We're not using control plane
+    // When NOT using control plane (direct send), packets have LB header from segmenter
+    // When using control plane, LB strips/modifies the header
+    rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
 
     // Create Reassembler
@@ -525,10 +546,12 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
          "Event reassembly timeout in milliseconds (default: 500)")
         ("files", po::value<std::vector<std::string>>(&args.file_paths),
          "ROOT files to process (required for sender mode)")
-        ("withcp,c", po::bool_switch()->default_value(false), 
+        ("withcp,c", po::bool_switch()->default_value(false),
             "enable control plane interactions")
-        ("rate", po::value<float>(&args.rateGbps)->default_value(1.0), 
-            "send rate in Gbps (defaults to 1.0, negative value means no limit)");
+        ("rate", po::value<float>(&args.rateGbps)->default_value(1.0),
+            "send rate in Gbps (defaults to 1.0, negative value means no limit)")
+        ("novalidate,v", po::bool_switch()->default_value(false),
+            "don't validate server SSL certificate");
 
 
     po::positional_options_description pos;
@@ -619,6 +642,7 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
     }
 
     args.withCP = vm["withcp"].as<bool>();
+    args.validate = !vm["novalidate"].as<bool>();
 
     return args;
 }
@@ -698,7 +722,8 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
 
     if (args.send_data) {
         segmenter = initializeSegmenter(args.ejfat_uri, args.data_id,
-                                       args.event_src_id, args.mtu, args.withCP, args.rateGbps);
+                                       args.event_src_id, args.mtu, args.withCP, args.rateGbps,
+                                       args.validate);
         if (!segmenter) {
             std::cerr << "Failed to initialize E2SAR segmenter" << std::endl;
             return false;
@@ -900,8 +925,15 @@ int main(int argc, char* argv[]) {
             // Receive events and write to files
             bool success = receiveEvents(*reassembler, args.output_pattern);
 
-            // Stop reassembler
-            std::cout << "\nStopping reassembler..." << std::endl;
+            // Deregister worker and stop reassembler
+            std::cout << "\nDeregistering worker..." << std::endl;
+            auto deregres = reassembler->deregisterWorker();
+            if (deregres.has_error()) {
+                std::cerr << "Unable to deregister worker on exit: "
+                          << deregres.error().message() << std::endl;
+            }
+
+            std::cout << "Stopping reassembler..." << std::endl;
             reassembler->stopThreads();
 
             return success ? 0 : 1;
