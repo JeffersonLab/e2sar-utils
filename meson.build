@@ -7,6 +7,8 @@ project('e2sar-utils', 'cpp',
   ]
 )
 
+enable_et = get_option('enable_et')
+
 # C++ compiler
 cxx = meson.get_compiler('cpp')
 
@@ -48,6 +50,23 @@ endif
 # The e2sar.pc now has Boost linker flags in Libs.private and grpc++/protobuf in Requires
 # We still need to declare Boost modules explicitly for header paths (Boost has no .pc files)
 e2sar_dep = dependency('e2sar', method: 'pkg-config', required: true)
+
+# ET dependency (only when enable_et=true)
+if enable_et
+  coda_root = run_command('sh', '-c', 'printf %s "$CODA"', check: false).stdout().strip()
+  if coda_root == ''
+    error('enable_et=true but environment variable CODA is not set')
+  endif
+
+  et_incdir = coda_root + '/include'
+  et_libdir = coda_root + '/Linux-86_64/lib'
+
+  # Meson 0.61: external libraries must not go in link_with; pass via link_args.
+  et_dep = declare_dependency(
+    include_directories : include_directories(et_incdir),
+    link_args : ['-L' + et_libdir, '-let']
+  )
+endif
 
 # Collect all dependencies
 # Note: Boost modules declared for headers (no .pc files), linker flags come from e2sar.pc

@@ -15,3 +15,9 @@ option('enable_docs',
   value : false,
   description : 'Build documentation'
 )
+
+option('enable_et',
+  type : 'boolean',
+  value : false,
+  description : 'Build ET receiver (requires ET library)'
+)
