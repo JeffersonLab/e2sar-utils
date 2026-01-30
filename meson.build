@@ -53,7 +53,7 @@ e2sar_dep = dependency('e2sar', method: 'pkg-config', required: true)
 
 # ET dependency (only when enable_et=true)
 if enable_et
-  coda_root = run_command('sh', '-c', 'printf %s "$CODA"', check: false).stdout().strip()
+  coda_root = run_command('sh', '-c', 'printf %s "$CODA"').stdout().strip()
   if coda_root == ''
     error('enable_et=true but environment variable CODA is not set')
   endif
@@ -83,7 +83,7 @@ project_deps = [
 ]
 
 # Include directories
-inc_dir = include_directories('include')
+inc_dir = include_directories('../root/include')
 
 # Subdirectories
 subdir('src')

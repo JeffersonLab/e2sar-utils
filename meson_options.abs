@@ -1,0 +1,24 @@
+option('enable_tests',
+  type : 'boolean',
+  value : true,
+  description : 'Build and run tests'
+)
+
+option('enable_examples',
+  type : 'boolean',
+  value : false,
+  description : 'Build example programs'
+)
+
+option('enable_docs',
+  type : 'boolean',
+  value : false,
+  description : 'Build documentation'
+)
+
+option(
+  'enable_et',
+  type: 'boolean',
+  value: false,
+  description: 'Enable ET support'
+)

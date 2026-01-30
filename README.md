@@ -16,6 +16,9 @@ A C++ utility library for e2sar project.
 
 ## Building
 
+# ROOT stup
+source env.sh
+
 ```bash
 # Configure the build
 meson setup build/
