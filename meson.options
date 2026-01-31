@@ -18,6 +18,6 @@ option('enable_docs',
 
 option('enable_et',
   type : 'boolean',
-  value : false,
+  value : true,
   description : 'Build ET receiver (requires ET library)'
 )
