@@ -386,7 +386,7 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         ("help,h", "Show this help message")
         ("uri,u", po::value<std::string>(&args.ejfat_uri)->required(),
          "EJFAT URI for E2SAR (required)")
-        ("recv-ip", po::value<std::string>(&args.recv_ip)->required(),
+        ("recv-ip,r", po::value<std::string>(&args.recv_ip)->required(),
          "IP address for receiver to listen on (required)")
         ("recv-port", po::value<uint16_t>(&args.recv_port)->default_value(19522),
          "Starting UDP port for receiver (default: 19522)")
@@ -411,12 +411,12 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         po::store(po::parse_command_line(argc, argv, desc), vm);
 
         if (vm.count("help")) {
-            std::cout << "Usage: " << argv[0] << " --uri <ejfat_uri> --recv-ip <ip> --et-file <et_file> [OPTIONS]\n\n"
+            std::cout << "Usage: " << argv[0] << " -u <ejfat_uri> -r <ip> --et-file <et_file> [OPTIONS]\n\n"
                       << desc << "\n"
                       << "Examples:\n"
                       << "  " << argv[0] << " --uri ejfat://... --recv-ip 127.0.0.1 --et-file /tmp/et_sys\n"
-                      << "  " << argv[0] << " --uri ejfat://... --recv-ip 192.168.1.100 --et-file /tmp/et_sys --et-host localhost --et-port 11111\n"
-                      << "  " << argv[0] << " -u ejfat://... --recv-ip 10.0.0.1 --et-file /tmp/et_sys --recv-threads 4 --et-event-size 4194304\n";
+                      << "  " << argv[0] << " -u ejfat://... -r 192.168.1.100 --et-file /tmp/et_sys --et-host localhost --et-port 11111\n"
+                      << "  " << argv[0] << " -u ejfat://... -r 10.0.0.1 --et-file /tmp/et_sys --recv-threads 4 --et-event-size 4194304\n";
             std::exit(0);
         }
 
@@ -435,13 +435,13 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
     } catch (const po::error& e) {
         std::cerr << "Error: " << e.what() << "\n\n";
         std::cout << "Usage: " << argv[0]
-                  << " --uri <ejfat_uri> --recv-ip <ip> --et-file <et_file> [OPTIONS]\n\n"
+                  << " -u <ejfat_uri> -r <ip> --et-file <et_file> [OPTIONS]\n\n"
                   << desc << std::endl;
         throw;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n\n";
         std::cout << "Usage: " << argv[0]
-                  << " --uri <ejfat_uri> --recv-ip <ip> --et-file <et_file> [OPTIONS]\n\n"
+                  << " -u <ejfat_uri> -r <ip> --et-file <et_file> [OPTIONS]\n\n"
                   << desc << std::endl;
         throw;
     }
