@@ -1,0 +1,34 @@
+Java HotSpot(TM) 64-Bit Server VM warning: Option UseBiasedLocking was deprecated in version 15.0 and will likely be removed in a future release.
+
+==========================================
+               ERSAP FE/DPE               
+==========================================
+ Name             = 10.90.0.1%8200_java
+ Session          = gurjyan_ersap
+ Start time       = 2026-02-06 09:37:06
+ Version          = 1.0
+ Lang             = Java
+ Pool size        = 16
+
+ Proxy Host       = 10.90.0.1
+ Proxy Port       = 8200
+==========================================
+2026-02-06 09:37:10: started container = 10.90.0.1%8200_java:gurjyan
+2026-02-06 09:37:10: started service = 10.90.0.1%8200_java:gurjyan:DataManager  pool_size = 1
+2026-02-06 09:37:11: started service = 10.90.0.1%8200_java:gurjyan:UniAdapter  pool_size = 1
+2026-02-06 09:37:11: started service = 10.90.0.1%8200_java:gurjyan:Sink  pool_size = 1
+INFO UniAdapterSourceEngine - request to open file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/input/stream.dat
+INFO UniAdapterSourceEngine - opened file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/input/stream.dat
+INFO UniAdapterSourceEngine - config time: 2 [ms]
+INFO UniAdapterSourceEngine - execute request count
+INFO UniAdapterSourceEngine - execute request order
+INFO CodaSinkEngine - request to open file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/output/out_stream.dat
+INFO CodaSinkEngine - opened file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/output/out_stream.dat
+INFO CodaSinkEngine - config time: 1 [ms]
+INFO CodaSinkEngine - closed file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/output/out_stream.dat
+2026-02-06 09:42:29: removed service = 10.90.0.1%8200_java:gurjyan:Sink
+2026-02-06 09:42:29: removed service = 10.90.0.1%8200_java:gurjyan:DataManager
+INFO UniAdapterSourceEngine - closed file /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/input/stream.dat
+2026-02-06 09:42:29: removed service = 10.90.0.1%8200_java:gurjyan:UniAdapter
+2026-02-06 09:42:29: removed container = 10.90.0.1%8200_java:gurjyan
+2026-02-06 09:42:29: shutdown DPE

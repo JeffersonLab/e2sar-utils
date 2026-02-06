@@ -1,0 +1,21 @@
+==========================================
+            ERSAP Orchestrator            
+==========================================
+ Front-end          = 10.90.0.1%8200_java
+ Start time         = 2026-02-06 09:37:09
+ Threads            = 1
+
+ Input directory    = /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/input
+ Output directory   = /daqfs/home/gurjyan/DImages/haidis-image/e2sar-utils/ersap-data/data/output
+ Output file prefix = out_
+ Number of files  = 1
+==========================================
+2026-02-06 09:37:09.910: Waiting for local node...
+2026-02-06 09:37:10.044: Start processing on 10.90.0.1...
+2026-02-06 09:37:10.044: Searching services in 10.90.0.1...
+2026-02-06 09:37:10.055: Deploying services in 10.90.0.1...
+2026-02-06 09:37:12.920: All services deployed on 10.90.0.1
+2026-02-06 09:37:13.288: Configuring services on 10.90.0.1...
+2026-02-06 09:37:13.626: All services configured on 10.90.0.1
+2026-02-06 09:37:13.661: Opening file stream.dat on 10.90.0.1
+2026-02-06 09:37:13.836: Using 1 cores on 10.90.0.1 to process 2147483647 events of stream.dat [1/1]
