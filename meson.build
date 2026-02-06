@@ -53,7 +53,7 @@ e2sar_dep = dependency('e2sar', method: 'pkg-config', required: true)
 
 # ET dependency (only when enable_et=true)
 if enable_et
-  coda_root = run_command('sh', '-c', 'printf %s "$CODA"').stdout().strip()
+  coda_root = run_command('sh', '-c', 'printf %s "$CODA"', check: true).stdout().strip()
   if coda_root == ''
     error('enable_et=true but environment variable CODA is not set')
   endif
@@ -62,8 +62,9 @@ if enable_et
   et_libdir = coda_root + '/Linux-86_64/lib'
 
   # Meson 0.61: external libraries must not go in link_with; pass via link_args.
+  # ET include path passed as compile flag since it's an external dependency
   et_dep = declare_dependency(
-    include_directories : include_directories(et_incdir),
+    compile_args : ['-I' + et_incdir],
     link_args : ['-L' + et_libdir, '-let']
   )
 endif
