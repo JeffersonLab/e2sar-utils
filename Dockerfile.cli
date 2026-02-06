@@ -10,9 +10,9 @@
 #   - deploy-debug: Optional variant with network debugging tools
 #
 # Build commands:
-#   Production:  docker build --target deploy -t e2sar-utils:slim -f Dockerfile.opt .
-#   Debug:       docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.opt .
-#   Build stage: docker build --target compile -t e2sar-utils:build -f Dockerfile.opt .
+#   Production:  docker build --target deploy -t e2sar-utils:slim -f Dockerfile.cli .
+#   Debug:       docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.cli .
+#   Build stage: docker build --target compile -t e2sar-utils:build -f Dockerfile.cli .
 
 #
 # Stage 'base-runtime': Minimal runtime dependencies
@@ -145,11 +145,19 @@ RUN cd ${ROOT_INSTALL}/root/bin && \
 # This stage contains only what's needed to run the application:
 # - Runtime libraries (from base-runtime)
 # - Compiled application binaries
+# - Complete source directory with coda/, ersap/, and all dependencies
 #
 FROM base-runtime AS deploy
 
-WORKDIR ${E2SARINSTALL}
-ENV PATH=${E2SARINSTALL}/bin:$PATH
+# Set MACHINE environment variable for env.sh
+ENV MACHINE=Linux-x86_64
+
+# Set working directory for packaged tools
+ENV WORKDIR=/work
+WORKDIR ${WORKDIR}
+
+# Update PATH to include E2SAR, CODA, and ERSAP binaries
+ENV PATH=${E2SARINSTALL}/bin:${WORKDIR}/coda/${MACHINE}/bin:${WORKDIR}/coda/common/bin:${WORKDIR}/ersap/bin:$PATH
 
 # ROOT's cling interpreter needs C++ standard library headers at runtime
 # Install them here (not in base-runtime to avoid conflicts with base-build)
@@ -162,13 +170,26 @@ RUN apt-get -yq update && \
 # Copy only the compiled application from the compile stage
 COPY --from=compile $E2SARINSTALL $E2SARINSTALL
 
-CMD ["e2sar-root"]
+# Copy entire build context (coda/, ersap/, env.sh, etc.) to /work
+COPY . ${WORKDIR}/
+
+# Create ersap-data directory if it doesn't exist
+RUN mkdir -p ${WORKDIR}/ersap-data
+
+# Copy and set up entrypoint script
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+# Expose ET port
+EXPOSE 23911
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 #
 # Stage 'deploy-debug': Optional debug variant with network tools
 #
 # Use this image when you need to debug network issues or inspect traffic.
-# Build with: docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.opt .
+# Build with: docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.cli .
 #
 FROM deploy AS deploy-debug
 
@@ -187,4 +208,4 @@ RUN apt-get -yq update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-CMD ["e2sar-root"]
+# deploy-debug uses the same ENTRYPOINT as deploy
