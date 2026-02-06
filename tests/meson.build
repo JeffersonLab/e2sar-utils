@@ -13,7 +13,6 @@ if get_option('enable_tests')
   # if test_dep.found() and test_sources.length() > 0
   #   test_exe = executable('e2sar_utils_tests',
   #     test_sources,
-  #     include_directories : inc_dir,
   #     dependencies : [project_deps, test_dep, e2sar_utils_dep],
   #   )
   #
@@ -25,7 +24,6 @@ endif
 # Needs Boost header paths since e2sar headers include Boost
 test_e2sar_exe = executable('test-e2sar',
   'test_e2sar.cpp',
-  include_directories : inc_dir,
   dependencies : [
     e2sar_dep,
     boost_log_dep,

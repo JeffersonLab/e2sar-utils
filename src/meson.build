@@ -8,7 +8,6 @@ sources = files(
 if sources.length() > 0
   e2sar_utils_lib = library('e2sar_utils',
     sources,
-    include_directories : inc_dir,
     dependencies : project_deps,
     install : true,
   )
@@ -16,7 +15,6 @@ if sources.length() > 0
   # Declare dependency for use in other subprojects
   e2sar_utils_dep = declare_dependency(
     link_with : e2sar_utils_lib,
-    include_directories : inc_dir,
     dependencies : project_deps
   )
 endif
@@ -25,7 +23,6 @@ endif
 # Needs all Boost modules that e2sar depends on (for headers and linking)
 e2sar_root_exe = executable('e2sar-root',
   'e2sar_root.cpp',
-  include_directories : inc_dir,
   dependencies : [
     boost_program_options_dep,
     boost_log_dep,
@@ -44,7 +41,6 @@ e2sar_root_exe = executable('e2sar-root',
 if get_option('enable_et')
   ersap_et_receiver_exe = executable('ersap-et-receiver',
     'ersap_et_receiver.cpp',
-    include_directories : inc_dir,
     dependencies : [
       boost_program_options_dep,
       boost_log_dep,
@@ -61,7 +57,6 @@ if get_option('enable_et')
   # Reads events from ET system and prints four-vectors
   ersap_processor_actor_exe = executable('ersap-processor-actor',
     'ersap_processor_actor.cpp',
-    include_directories : inc_dir,
     dependencies : [
       et_dep
     ],

@@ -83,9 +83,6 @@ project_deps = [
   e2sar_dep
 ]
 
-# Include directories
-inc_dir = include_directories('../root/include')
-
 # Subdirectories
 subdir('src')
 subdir('tests')
