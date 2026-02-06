@@ -58,8 +58,8 @@ if enable_et
     error('enable_et=true but environment variable CODA is not set')
   endif
 
-  et_incdir = coda_root + '/include'
-  et_libdir = coda_root + '/Linux-86_64/lib'
+  et_incdir = coda_root + '/common/include'
+  et_libdir = coda_root + '/Linux-x86_64/lib'
 
   # Meson 0.61: external libraries must not go in link_with; pass via link_args.
   # ET include path passed as compile flag since it's an external dependency

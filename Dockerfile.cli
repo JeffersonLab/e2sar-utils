@@ -117,6 +117,7 @@ RUN pip3 install --break-system-packages pybind11 meson
 FROM base-build AS compile
 
 ENV SRC_DIR=/src
+ENV CODA=/src/coda
 WORKDIR $SRC_DIR
 
 # Copy source code
@@ -155,6 +156,9 @@ ENV MACHINE=Linux-x86_64
 # Set working directory for packaged tools
 ENV WORKDIR=/work
 WORKDIR ${WORKDIR}
+
+# Set CODA environment variable to point to coda directory
+ENV CODA=${WORKDIR}/coda
 
 # Update PATH to include E2SAR, CODA, and ERSAP binaries
 ENV PATH=${E2SARINSTALL}/bin:${WORKDIR}/coda/${MACHINE}/bin:${WORKDIR}/coda/common/bin:${WORKDIR}/ersap/bin:$PATH
