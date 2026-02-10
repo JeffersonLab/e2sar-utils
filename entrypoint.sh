@@ -106,7 +106,7 @@ if [ -z "${RECV_IP}" ]; then
     exit 1
 fi
 
-RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
+RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp -v --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
 echo "Command: ${RECEIVER_CMD}"
 echo "✓ Receiver IP: ${RECV_IP}"
 
