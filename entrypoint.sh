@@ -97,7 +97,8 @@ echo "✓ ET is running"
 # Step 5: Start ERSAP in foreground (as PID 1 for proper signal handling)
 echo "----------------------------------------"
 echo "Starting ERSAP..."
-ERSAP_CMD="ersap-shell haidis.ersap"
+ERSAP_SCRIPT="${ERSAP_USER_DATA}/haidis.ersap"
+ERSAP_CMD="ersap-shell ${ERSAP_SCRIPT}"
 echo "Command: ${ERSAP_CMD}"
 
 # Check if ersap-shell is available
@@ -107,10 +108,16 @@ if ! command -v ersap-shell &> /dev/null; then
     exit 1
 fi
 
+# Check if ERSAP script exists
+if [ ! -f "${ERSAP_SCRIPT}" ]; then
+    echo "ERROR: ERSAP script not found at ${ERSAP_SCRIPT}"
+    exit 1
+fi
+
 echo "=========================================="
 echo "All systems initialized. Starting ERSAP..."
 echo "=========================================="
 
 # Use exec to replace this shell with ERSAP, making it PID 1
 # This ensures proper signal handling (SIGTERM, etc.)
-exec ersap-shell haidis.ersap
+exec ersap-shell "${ERSAP_SCRIPT}"
