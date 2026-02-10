@@ -163,6 +163,9 @@ ENV CODA=${WORKDIR}/coda
 # Update PATH to include E2SAR, CODA, and ERSAP binaries
 ENV PATH=${E2SARINSTALL}/bin:${WORKDIR}/coda/${MACHINE}/bin:${WORKDIR}/coda/common/bin:${WORKDIR}/ersap/bin:$PATH
 
+# Update LD_LIBRARY_PATH to include CODA libraries for ET shared objects
+ENV LD_LIBRARY_PATH=${WORKDIR}/coda/${MACHINE}/lib:/usr/local/lib
+
 # ROOT's cling interpreter needs C++ standard library headers at runtime
 # Install them here (not in base-runtime to avoid conflicts with base-build)
 RUN apt-get -yq update && \

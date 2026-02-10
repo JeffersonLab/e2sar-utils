@@ -53,12 +53,14 @@ if [ -f "${ENV_FILE}" ]; then
     export ERSAP_HOME="${WORKDIR}/ersap"
     export ERSAP_USER_DATA="${WORKDIR}/ersap-data"
     export PATH="${CODA_BIN}:${CODA}/common/bin:${ERSAP_HOME}/bin:${PATH}"
+    export LD_LIBRARY_PATH="${CODA_LIB}:${LD_LIBRARY_PATH:-}"
 
     echo "✓ CODA: ${CODA}"
     echo "✓ CODA_BIN: ${CODA_BIN}"
     echo "✓ CODA_LIB: ${CODA_LIB}"
     echo "✓ ERSAP_HOME: ${ERSAP_HOME}"
     echo "✓ ERSAP_USER_DATA: ${ERSAP_USER_DATA}"
+    echo "✓ LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 else
     echo "WARNING: ${ENV_FILE} not found, environment may not be complete"
 fi
