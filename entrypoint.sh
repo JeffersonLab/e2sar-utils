@@ -5,7 +5,8 @@
 # 1. Validates required EJFAT_URI environment variable
 # 2. Sources ROOT and environment configuration
 # 3. Starts ET system in background
-# 4. Starts ERSAP in foreground
+# 4. Starts ersap-et-receiver to bridge E2SAR data to ET
+# 5. Starts ERSAP in foreground
 
 set -euo pipefail
 
@@ -94,7 +95,45 @@ fi
 
 echo "✓ ET is running"
 
-# Step 5: Start ERSAP in foreground (as PID 1 for proper signal handling)
+# Step 5: Start ersap-et-receiver to bridge E2SAR data to ET system
+echo "----------------------------------------"
+echo "Starting ersap-et-receiver..."
+
+# Dynamically determine the host IP address
+RECV_IP=$(hostname -I | awk '{print $1}')
+if [ -z "${RECV_IP}" ]; then
+    echo "ERROR: Could not determine host IP address"
+    exit 1
+fi
+
+RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
+echo "Command: ${RECEIVER_CMD}"
+echo "✓ Receiver IP: ${RECV_IP}"
+
+# Check if ersap-et-receiver is available
+if ! command -v ersap-et-receiver &> /dev/null; then
+    echo "ERROR: ersap-et-receiver not found in PATH"
+    echo "PATH: ${PATH}"
+    exit 1
+fi
+
+# Start receiver in background
+${RECEIVER_CMD} &
+RECEIVER_PID=$!
+echo "✓ ersap-et-receiver started with PID: ${RECEIVER_PID}"
+
+# Give receiver a moment to initialize
+sleep 1
+
+# Check if receiver is still running
+if ! kill -0 ${RECEIVER_PID} 2>/dev/null; then
+    echo "ERROR: ersap-et-receiver failed to start or exited immediately"
+    exit 1
+fi
+
+echo "✓ ersap-et-receiver is running"
+
+# Step 6: Start ERSAP in foreground (as PID 1 for proper signal handling)
 echo "----------------------------------------"
 echo "Starting ERSAP..."
 ERSAP_SCRIPT="${ERSAP_USER_DATA}/haidis.ersap"
