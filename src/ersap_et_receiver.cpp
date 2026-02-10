@@ -33,6 +33,7 @@ struct CommandLineArgs {
     size_t recv_threads = 1;
     int event_timeout_ms = 500;
     bool withCP = false;
+    bool validate = true;
 
     // ET system options
     std::string et_file;
@@ -191,9 +192,13 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     uint16_t recv_port,
     size_t num_threads,
     int event_timeout_ms,
-    bool withCP = false) {
+    bool withCP = false,
+    bool validateCert = true) {
 
     std::cout << "\nInitializing E2SAR Reassembler..." << std::endl;
+    if (withCP) {
+        std::cout << "  SSL certificate validation: " << (validateCert ? "enabled" : "disabled") << std::endl;
+    }
 
     // Parse EJFAT URI
     auto uri_result = e2sar::EjfatURI::getFromString(uri_str,
@@ -396,6 +401,8 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
          "Event reassembly timeout in milliseconds (default: 500)")
         ("withcp,c", po::bool_switch(&args.withCP)->default_value(false),
          "Enable control plane interactions (default: false)")
+        ("novalidate,v", po::bool_switch()->default_value(false),
+         "Don't validate server SSL certificate (default: validate)")
         ("et-file", po::value<std::string>(&args.et_file)->required(),
          "ET system file path (required)")
         ("et-host", po::value<std::string>(&args.et_host),
@@ -431,6 +438,9 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         if (args.et_event_size < 1024) {
             throw std::runtime_error("--et-event-size must be at least 1024 bytes");
         }
+
+        // Parse validation flag (inverted logic: novalidate = true means validate = false)
+        args.validate = !vm["novalidate"].as<bool>();
 
     } catch (const po::error& e) {
         std::cerr << "Error: " << e.what() << "\n\n";
@@ -471,7 +481,8 @@ int main(int argc, char* argv[]) {
             args.recv_port,
             args.recv_threads,
             args.event_timeout_ms,
-            args.withCP);
+            args.withCP,
+            args.validate);
 
         if (!reassembler) {
             std::cerr << "Failed to initialize E2SAR reassembler" << std::endl;
