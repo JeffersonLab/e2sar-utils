@@ -35,7 +35,7 @@ ENV ROOT_URL=https://root.cern/download/${ROOT_TAR}
 
 RUN mkdir ${E2SARINSTALL} && mkdir ${ROOT_INSTALL}
 
-# Runtime dependencies only (libraries needed by ROOT and E2SAR at runtime)
+# Runtime dependencies only (libraries needed by ROOT, E2SAR, and ERSAP at runtime)
 RUN apt-get -yq update && \
     apt-get -yq install --no-install-recommends \
         ca-certificates \
@@ -47,7 +47,8 @@ RUN apt-get -yq update && \
         libx11-6 \
         libxext6 \
         libxft2 \
-        libxpm4 && \
+        libxpm4 \
+        openjdk-11-jre-headless && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
