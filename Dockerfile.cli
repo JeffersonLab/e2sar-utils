@@ -48,7 +48,7 @@ RUN apt-get -yq update && \
         libxext6 \
         libxft2 \
         libxpm4 \
-        openjdk-11-jre-headless && \
+        openjdk-17-jre-headless && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
