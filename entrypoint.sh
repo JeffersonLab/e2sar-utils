@@ -101,49 +101,56 @@ echo "Starting ersap-et-receiver..."
 
 # Determine the receiver IP address
 # IMPORTANT: Docker networking constraints
-# - Bridge mode: Container cannot auto-detect host IP. Set RECV_IP environment variable.
-# - Host mode: Auto-detection works correctly.
+# - Bridge mode: Container MUST bind to 0.0.0.0 (cannot bind to host IP from inside container)
+# - Host mode: Can bind to actual host IPs
 #
 # Priority:
-# 1. Use RECV_IP environment variable if set (recommended for bridge networking)
-# 2. Try to detect primary routable IP via default route
-# 3. Fall back to hostname -I with Docker bridge IP filtering
+# 1. Use RECV_IP environment variable if set
+# 2. Detect Docker bridge networking and use 0.0.0.0 (bind to all interfaces)
+# 3. Try to detect primary routable IP via default route (host networking)
 
 if [ -n "${RECV_IP:-}" ]; then
     echo "✓ Using RECV_IP from environment: ${RECV_IP}"
 else
-    # Try to find the IP of the default route interface
-    # This asks: "What source IP would I use to reach the internet?"
-    RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)
+    # Detect if we're in Docker bridge networking
+    # Check for Docker bridge IP (172.17.x.x, 172.18.x.x) or /.dockerenv file
+    IS_DOCKER_BRIDGE=false
 
-    # If that didn't work, try hostname -I and filter out Docker bridge IPs
-    # Docker typically uses 172.17.0.0/16, 172.18.0.0/16, etc. for bridge networks
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
-                  grep -v '^127\.' | \
-                  grep -v '^172\.1[67]\.' | \
-                  grep -v '^172\.18\.' | \
-                  head -1 || true)
+    if [ -f /.dockerenv ]; then
+        # We're definitely in a container
+        # Check if we have a Docker bridge IP (172.17.x.x, etc.)
+        if hostname -I 2>/dev/null | grep -qE '172\.(1[67]|18)\.[0-9]+\.[0-9]+'; then
+            IS_DOCKER_BRIDGE=true
+        fi
     fi
 
-    # Final fallback: use first address from hostname -I
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-    fi
+    if [ "$IS_DOCKER_BRIDGE" = true ]; then
+        # In Docker bridge mode: bind to 0.0.0.0 to accept traffic on all interfaces
+        RECV_IP="0.0.0.0"
+        echo "✓ Detected Docker bridge networking, binding to 0.0.0.0 (all interfaces)"
+        echo "  Note: Ensure you map ports with -p 10000:10000/udp when running container"
+    else
+        # Not in bridge mode (or in host networking): try to find the actual IP
+        # This asks: "What source IP would I use to reach the internet?"
+        RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)
 
-    if [ -z "${RECV_IP}" ]; then
-        echo "ERROR: Could not determine receiver IP address"
-        echo ""
-        echo "For Docker bridge networking, you must explicitly set the host IP:"
-        echo "  docker run -e RECV_IP=<host-ip> -e EJFAT_URI=<uri> ..."
-        echo ""
-        echo "Example with host IP 129.57.177.8:"
-        echo "  docker run -e RECV_IP=129.57.177.8 -e EJFAT_URI=ejfat://... ..."
-        exit 1
-    fi
+        # If that didn't work, try hostname -I
+        if [ -z "${RECV_IP}" ]; then
+            RECV_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+        fi
 
-    echo "✓ Auto-detected receiver IP: ${RECV_IP}"
-    echo "  (If this is a Docker bridge IP like 172.17.x.x, set RECV_IP env var explicitly)"
+        if [ -z "${RECV_IP}" ]; then
+            echo "ERROR: Could not determine receiver IP address"
+            echo ""
+            echo "Please set RECV_IP environment variable:"
+            echo "  docker run -e RECV_IP=<ip-address> -e EJFAT_URI=<uri> ..."
+            echo ""
+            echo "Use 0.0.0.0 for Docker bridge mode, or specific IP for host networking"
+            exit 1
+        fi
+
+        echo "✓ Auto-detected receiver IP: ${RECV_IP}"
+    fi
 fi
 
 RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp -v --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
