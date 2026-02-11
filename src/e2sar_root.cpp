@@ -324,7 +324,8 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     uint16_t recv_port,
     size_t num_threads,
     int event_timeout_ms,
-    bool withCP) {
+    bool withCP,
+    bool validate) {
 
     std::cout << "\nInitializing E2SAR Reassembler..." << std::endl;
 
@@ -355,6 +356,7 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     // When using control plane, LB strips/modifies the header
     rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
+    rflags.validateCert = validate;
 
     // Create Reassembler
     auto reassembler = std::make_unique<e2sar::Reassembler>(
@@ -923,7 +925,9 @@ int main(int argc, char* argv[]) {
                 args.recv_port,
                 args.recv_threads,
                 args.event_timeout_ms,
-                args.withCP);
+                args.withCP,
+                args.validate
+            );
 
             if (!reassembler) {
                 std::cerr << "Failed to initialize E2SAR reassembler" << std::endl;
