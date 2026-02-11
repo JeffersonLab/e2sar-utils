@@ -86,6 +86,55 @@ meson compile -C build/
 └── build/        # Build directory (generated)
 ```
 
+## Running
+Here are the command-line instructions for running the HAIDIS back-end components 
+(i.e., the software components downstream of the EJFAT load balancer). 
+The first example shows how to run them natively, without using a container.
+
+#### Native
+
+##### Setup the environment
+```
+source env.sh
+
+```
+
+##### Start ET
+
+```
+et_start -f /tmp/et_sys -v -d -n 1000 -s 2097152 -p 23911
+
+```
+##### Start ET receiver
+
+```
+./ersap-et-receiver -u $EJFAT_URI --withcp -v --recv-ip 129.57.177.8 --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys
+
+```
+##### Start ERSAP
+
+```
+$ERSAP_HOME/bin/ersap-shell haidis.ersap
+
+```
+
+### Docker image
+
+#### Building Docker image
+
+```
+docker build --target deploy -t haidis-dp:latest -f Dockerfile.cli .
+```
+
+#### Running Docker image
+Note: The environment variables EJFA_URI (the reserved load balancer instance) and 
+RECV_IP (the network interface where incoming data packets are expected) 
+must be properly set before running the application.
+
+```
+docker run -it --network=host --entrypoint /bin/bash -e EJFAT_URI=$EJFAT_URI -e RECV_IP=$RECV_IP haidis-dp:latest
+```
+
 ## License
 
 TBD
