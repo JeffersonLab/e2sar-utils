@@ -99,11 +99,51 @@ echo "✓ ET is running"
 echo "----------------------------------------"
 echo "Starting ersap-et-receiver..."
 
-# Dynamically determine the host IP address
-RECV_IP=$(hostname -I | awk '{print $1}')
-if [ -z "${RECV_IP}" ]; then
-    echo "ERROR: Could not determine host IP address"
-    exit 1
+# Determine the receiver IP address
+# IMPORTANT: Docker networking constraints
+# - Bridge mode: Container cannot auto-detect host IP. Set RECV_IP environment variable.
+# - Host mode: Auto-detection works correctly.
+#
+# Priority:
+# 1. Use RECV_IP environment variable if set (recommended for bridge networking)
+# 2. Try to detect primary routable IP via default route
+# 3. Fall back to hostname -I with Docker bridge IP filtering
+
+if [ -n "${RECV_IP:-}" ]; then
+    echo "✓ Using RECV_IP from environment: ${RECV_IP}"
+else
+    # Try to find the IP of the default route interface
+    # This asks: "What source IP would I use to reach the internet?"
+    RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)
+
+    # If that didn't work, try hostname -I and filter out Docker bridge IPs
+    # Docker typically uses 172.17.0.0/16, 172.18.0.0/16, etc. for bridge networks
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+                  grep -v '^127\.' | \
+                  grep -v '^172\.1[67]\.' | \
+                  grep -v '^172\.18\.' | \
+                  head -1 || true)
+    fi
+
+    # Final fallback: use first address from hostname -I
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+
+    if [ -z "${RECV_IP}" ]; then
+        echo "ERROR: Could not determine receiver IP address"
+        echo ""
+        echo "For Docker bridge networking, you must explicitly set the host IP:"
+        echo "  docker run -e RECV_IP=<host-ip> -e EJFAT_URI=<uri> ..."
+        echo ""
+        echo "Example with host IP 129.57.177.8:"
+        echo "  docker run -e RECV_IP=129.57.177.8 -e EJFAT_URI=ejfat://... ..."
+        exit 1
+    fi
+
+    echo "✓ Auto-detected receiver IP: ${RECV_IP}"
+    echo "  (If this is a Docker bridge IP like 172.17.x.x, set RECV_IP env var explicitly)"
 fi
 
 RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp -v --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
