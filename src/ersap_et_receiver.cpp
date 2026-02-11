@@ -196,6 +196,7 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     bool validateCert = true) {
 
     std::cout << "\nInitializing E2SAR Reassembler..." << std::endl;
+    std::cout << "  Control plane: " << (withCP ? "enabled" : "disabled") << std::endl;
     if (withCP) {
         std::cout << "  SSL certificate validation: " << (validateCert ? "enabled" : "disabled") << std::endl;
     }
@@ -227,6 +228,10 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     // When using control plane, LB strips/modifies the header
     rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
+    // Only set validateCert when actually using control plane (SSL/TLS context)
+    if (withCP) {
+        rflags.validateCert = validateCert;
+    }
 
     // Create Reassembler
     auto reassembler = std::make_unique<e2sar::Reassembler>(
@@ -283,7 +288,8 @@ std::atomic<bool> keep_receiving{true};
 bool receiveEvents(e2sar::Reassembler& reassembler, ETSystem& et) {
 
     std::cout << "\nStarting event reception..." << std::endl;
-    std::cout << "Press Ctrl+C to stop\n" << std::endl;
+    std::cout << "Press Ctrl+C to stop" << std::endl;
+    std::cout << "Entering receive loop...\n" << std::endl;
 
     ReceiveStats stats;
     uint8_t* event_buffer = nullptr;
