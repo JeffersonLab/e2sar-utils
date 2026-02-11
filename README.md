@@ -30,6 +30,30 @@ meson test -C build/
 meson install -C build/
 ```
 
+## Testing
+
+After making code changes, always run the loopback integration test:
+
+```bash
+# Run the loopback test (sender + receiver over localhost)
+./tests/test_loopback.sh
+
+# With custom options
+./tests/test_loopback.sh --timeout 60 --bufsize 2 --files 3
+```
+
+The test script:
+1. Starts a receiver on the loopback interface
+2. Runs the sender with parallel file processing
+3. Verifies all buffers were received without errors
+4. Reports PASS/FAIL status
+
+**Options:**
+- `--timeout N` - Receiver timeout in seconds (default: 30)
+- `--bufsize N` - Batch size in MB (default: 1)
+- `--mtu N` - MTU size (default: 9000)
+- `--files N` - Number of parallel file streams (default: 2)
+
 ## Build Options
 
 ### Available Options

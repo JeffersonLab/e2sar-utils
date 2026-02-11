@@ -2,6 +2,7 @@
 #include <TTree.h>
 #include <TLorentzVector.h>
 #include <TVector3.h>
+#include <TROOT.h>
 #include <boost/program_options.hpp>
 #include <e2sar.hpp>
 #include <iostream>
@@ -19,6 +20,8 @@
 #include <iomanip>
 #include <atomic>
 #include <signal.h>
+#include <future>
+#include <mutex>
 
 namespace po = boost::program_options;
 
@@ -321,7 +324,8 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     uint16_t recv_port,
     size_t num_threads,
     int event_timeout_ms,
-    bool withCP) {
+    bool withCP,
+    bool validate) {
 
     std::cout << "\nInitializing E2SAR Reassembler..." << std::endl;
 
@@ -352,6 +356,7 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     // When using control plane, LB strips/modifies the header
     rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
+    rflags.validateCert = validate;
 
     // Create Reassembler
     auto reassembler = std::make_unique<e2sar::Reassembler>(
@@ -403,6 +408,23 @@ struct ReceiveStats {
 
 // Global flag for signal handling
 std::atomic<bool> keep_receiving{true};
+
+// Global atomic buffer ID counter for thread-safe unique IDs
+std::atomic<size_t> global_buffer_id{0};
+
+// Mutex for thread-safe console output
+std::mutex cout_mutex;
+
+// Thread-safe print helper
+void thread_print(size_t file_idx, const std::string& msg) {
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << "[File " << file_idx << "] " << msg << std::endl;
+}
+
+void thread_print(size_t file_idx, const std::ostringstream& oss) {
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << "[File " << file_idx << "] " << oss.str() << std::endl;
+}
 
 // Receive events and write to memory-mapped files
 bool receiveEvents(e2sar::Reassembler& reassembler,
@@ -647,13 +669,16 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
     return args;
 }
 
-bool processRootFile(const std::string& file_path, const std::string& tree_name, const CommandLineArgs& args) {
+bool processRootFile(const std::string& file_path, const std::string& tree_name,
+                     const CommandLineArgs& args, e2sar::Segmenter* segmenter,
+                     size_t file_index) {
     // Open ROOT file
     auto file = std::unique_ptr<TFile>(TFile::Open(file_path.c_str(), "READ"));
 
     // Check if file opened successfully
     if (!file || file->IsZombie()) {
-        std::cerr << "Error: Cannot open file " << file_path << std::endl;
+        std::lock_guard<std::mutex> lock(cout_mutex);
+        std::cerr << "[File " << file_index << "] Error: Cannot open file " << file_path << std::endl;
         return false;
     }
 
@@ -662,14 +687,19 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
 
     // Check if tree exists
     if (!tree) {
-        std::cerr << "Error: Tree '" << tree_name
+        std::lock_guard<std::mutex> lock(cout_mutex);
+        std::cerr << "[File " << file_index << "] Error: Tree '" << tree_name
                   << "' not found in file " << file_path << std::endl;
         return false;
     }
 
     // Get number of entries
     Long64_t nEntries = tree->GetEntries();
-    std::cout << "Found tree '" << tree_name << "' with " << nEntries << " entries" << std::endl;
+    {
+        std::ostringstream oss;
+        oss << "Found tree '" << tree_name << "' with " << nEntries << " entries";
+        thread_print(file_index, oss);
+    }
 
     // Branch variables for positive pion (π+)
     Double_t mag_plus_rec, theta_plus_rec, phi_plus_rec;
@@ -711,30 +741,22 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
     const size_t BATCH_SIZE_BYTES = args.bufsize_mb * 1024 * 1024;
     const size_t BATCH_SIZE_EVENTS = BATCH_SIZE_BYTES / EVENT_SIZE;
 
-    std::cout << "Streaming configuration:" << std::endl;
-    std::cout << "  Batch size: " << args.bufsize_mb << " MB ("
-              << BATCH_SIZE_EVENTS << " events)" << std::endl;
-
-    // Initialize E2SAR if sending
-    std::unique_ptr<e2sar::Segmenter> segmenter;
-    size_t buffer_id = 0;          // Running buffer ID counter
-    StreamingStats stats;
-
-    if (args.send_data) {
-        segmenter = initializeSegmenter(args.ejfat_uri, args.data_id,
-                                       args.event_src_id, args.mtu, args.withCP, args.rateGbps,
-                                       args.validate);
-        if (!segmenter) {
-            std::cerr << "Failed to initialize E2SAR segmenter" << std::endl;
-            return false;
-        }
-
-        std::cout << "  Max payload: " << segmenter->getMaxPldLen() << " bytes" << std::endl;
+    {
+        std::ostringstream oss;
+        oss << "Batch size: " << args.bufsize_mb << " MB (" << BATCH_SIZE_EVENTS << " events)";
+        thread_print(file_index, oss);
     }
+
+    // Local statistics for this file
+    StreamingStats stats;
 
     // ========== Streaming read-send loop ==========
 
-    std::cout << "\nStreaming " << nEntries << " events..." << std::endl;
+    {
+        std::ostringstream oss;
+        oss << "Streaming " << nEntries << " events...";
+        thread_print(file_index, oss);
+    }
 
     DalitzEvent first_event;  // Save for sample output
     bool saved_first = false;
@@ -767,10 +789,13 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
         // When batch is full OR last event, send it
         if (events_in_batch >= BATCH_SIZE_EVENTS || i == nEntries - 1) {
 
-            // Send batch if E2SAR enabled
-            if (args.send_data) {
+            // Send batch if E2SAR enabled and segmenter is available
+            if (args.send_data && segmenter) {
                 uint8_t* buffer_ptr = reinterpret_cast<uint8_t*>(batch->data());
                 size_t buffer_size = batch->size() * sizeof(double);
+
+                // Get unique buffer ID from global atomic counter
+                size_t current_buffer_id = global_buffer_id.fetch_add(1);
 
                 // Send buffer via E2SAR with retry on queue full
                 bool sent = false;
@@ -779,7 +804,7 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
 
                 while (!sent && retry_count < MAX_RETRIES) {
                     auto send_result = segmenter->addToSendQueue(buffer_ptr, buffer_size,
-                        buffer_id, 0, 0, &freeBuffer, batch);
+                        current_buffer_id, 0, 0, &freeBuffer, batch);
 
                     if (send_result.has_error()) {
                         if (send_result.error().code() == e2sar::E2SARErrorc::MemoryError) {
@@ -788,7 +813,9 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
                             retry_count++;
                             continue;
                         } else {
-                            std::cerr << "Send error: " << send_result.error().message() << std::endl;
+                            std::lock_guard<std::mutex> lock(cout_mutex);
+                            std::cerr << "[File " << file_index << "] Send error: "
+                                      << send_result.error().message() << std::endl;
                             delete batch;
                             return false;
                         }
@@ -797,19 +824,22 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
                 }
 
                 if (!sent) {
-                    std::cerr << "Failed to send buffer after " << MAX_RETRIES << " retries" << std::endl;
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cerr << "[File " << file_index << "] Failed to send buffer after "
+                              << MAX_RETRIES << " retries" << std::endl;
                     delete batch;
                     return false;
                 }
 
-                buffer_id++;
                 stats.addBatch(events_in_batch, 1, buffer_size);
 
                 // Progress update every 10 batches
                 if (stats.total_batches_sent % 10 == 0) {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << "[File " << file_index << "] ";
                     stats.printProgress();
                 }
-            } else {
+            } else if (!args.send_data) {
                 // If not sending, just delete the batch
                 delete batch;
             }
@@ -824,81 +854,61 @@ bool processRootFile(const std::string& file_path, const std::string& tree_name,
 
         // Progress indicator for large files (reading progress)
         if ((i + 1) % 500000 == 0) {
-            std::cout << "  Read " << (i + 1) << " / " << nEntries << " events" << std::endl;
+            std::ostringstream oss;
+            oss << "Read " << (i + 1) << " / " << nEntries << " events";
+            thread_print(file_index, oss);
         }
     }
 
-    std::cout << "\nSuccessfully processed " << nEntries << " events from " << file_path << std::endl;
+    {
+        std::ostringstream oss;
+        oss << "Successfully processed " << nEntries << " events from " << file_path;
+        thread_print(file_index, oss);
+    }
 
     // ========== Sample output (use saved first_event) ==========
 
     if (saved_first) {
-        std::cout << "\nSample (first event):" << std::endl;
-        std::cout << "  π+ : E=" << first_event.pi_plus.E()
+        std::lock_guard<std::mutex> lock(cout_mutex);
+        std::cout << "[File " << file_index << "] Sample (first event):" << std::endl;
+        std::cout << "[File " << file_index << "]   π+ : E=" << first_event.pi_plus.E()
                   << " GeV, p=(" << first_event.pi_plus.Px()
                   << ", " << first_event.pi_plus.Py()
                   << ", " << first_event.pi_plus.Pz() << ") GeV/c" << std::endl;
-        std::cout << "  π- : E=" << first_event.pi_minus.E()
+        std::cout << "[File " << file_index << "]   π- : E=" << first_event.pi_minus.E()
                   << " GeV, p=(" << first_event.pi_minus.Px()
                   << ", " << first_event.pi_minus.Py()
                   << ", " << first_event.pi_minus.Pz() << ") GeV/c" << std::endl;
-        std::cout << "  γ1 : E=" << first_event.gamma1.E()
+        std::cout << "[File " << file_index << "]   γ1 : E=" << first_event.gamma1.E()
                   << " GeV, p=(" << first_event.gamma1.Px()
                   << ", " << first_event.gamma1.Py()
                   << ", " << first_event.gamma1.Pz() << ") GeV/c" << std::endl;
-        std::cout << "  γ2 : E=" << first_event.gamma2.E()
+        std::cout << "[File " << file_index << "]   γ2 : E=" << first_event.gamma2.E()
                   << " GeV, p=(" << first_event.gamma2.Px()
                   << ", " << first_event.gamma2.Py()
                   << ", " << first_event.gamma2.Pz() << ") GeV/c" << std::endl;
     }
 
-    // ========== Wait for completion and final stats ==========
+    // ========== Per-file completion stats ==========
 
     if (args.send_data && segmenter) {
-        std::cout << "\nAll batches queued. Waiting for send completion..." << std::endl;
-
-        // Calculate expected frame count based on total bytes sent
-        size_t max_payload = segmenter->getMaxPldLen();
-        size_t expected_frames = (stats.total_bytes_sent + max_payload - 1) / max_payload;
-
-        // Wait for completion
-        auto start = std::chrono::steady_clock::now();
-        while (true) {
-            auto send_stats = segmenter->getSendStats();
-
-            if (send_stats.msgCnt >= expected_frames || send_stats.errCnt > 0) {
-                break;
-            }
-
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
-        auto send_stats = segmenter->getSendStats();
-        auto duration = std::chrono::steady_clock::now() - start;
-        auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-
-        std::cout << "\n========== E2SAR Sending Complete ==========" << std::endl;
-        std::cout << "Events processed: " << stats.total_events_processed << std::endl;
-        std::cout << "Batches sent: " << stats.total_batches_sent << std::endl;
-        std::cout << "E2SAR buffers: " << stats.total_buffers_sent << std::endl;
-        std::cout << "Data volume: " << (stats.total_bytes_sent / (1024.0 * 1024.0)) << " MB" << std::endl;
-        std::cout << "Network frames: " << send_stats.msgCnt << " / " << expected_frames << std::endl;
-        std::cout << "Errors: " << send_stats.errCnt << std::endl;
-        std::cout << "Duration: " << duration_ms << " ms" << std::endl;
-
-        if (send_stats.errCnt > 0) {
-            std::cerr << "WARNING: Errors occurred during sending" << std::endl;
-            return false;
-        }
+        std::lock_guard<std::mutex> lock(cout_mutex);
+        std::cout << "[File " << file_index << "] ========== File Processing Complete ==========" << std::endl;
+        std::cout << "[File " << file_index << "] Events processed: " << stats.total_events_processed << std::endl;
+        std::cout << "[File " << file_index << "] Batches sent: " << stats.total_batches_sent << std::endl;
+        std::cout << "[File " << file_index << "] Data volume: " << (stats.total_bytes_sent / (1024.0 * 1024.0)) << " MB" << std::endl;
     }
 
-    // Segmenter destructor called automatically (stops threads)
+    // Note: Segmenter stats are printed in main() after all threads complete
 
     // File closes automatically when unique_ptr goes out of scope
     return true;
 }
 
 int main(int argc, char* argv[]) {
+    // Enable ROOT thread safety for parallel file processing
+    ROOT::EnableThreadSafety();
+
     try {
         // Parse arguments
         auto args = parseArgs(argc, argv);
@@ -915,7 +925,9 @@ int main(int argc, char* argv[]) {
                 args.recv_port,
                 args.recv_threads,
                 args.event_timeout_ms,
-                args.withCP);
+                args.withCP,
+                args.validate
+            );
 
             if (!reassembler) {
                 std::cerr << "Failed to initialize E2SAR reassembler" << std::endl;
@@ -939,17 +951,77 @@ int main(int argc, char* argv[]) {
             return success ? 0 : 1;
         }
 
-        // Sender mode (original code)
+        // Sender/Read-only mode
         int success_count = 0;
         int failure_count = 0;
 
-        for (const auto& file_path : args.file_paths) {
-            std::cout << "Opening ROOT file: " << file_path << std::endl;
+        // Create shared Segmenter if sending
+        std::unique_ptr<e2sar::Segmenter> segmenter;
 
-            if (processRootFile(file_path, args.tree_name, args)) {
+        if (args.send_data) {
+            std::cout << "Initializing shared E2SAR Segmenter for "
+                      << args.file_paths.size() << " file(s)..." << std::endl;
+
+            segmenter = initializeSegmenter(args.ejfat_uri, args.data_id,
+                                           args.event_src_id, args.mtu,
+                                           args.withCP, args.rateGbps,
+                                           args.validate);
+            if (!segmenter) {
+                std::cerr << "Failed to initialize E2SAR segmenter" << std::endl;
+                return 1;
+            }
+
+            std::cout << "Segmenter ready. Max payload: "
+                      << segmenter->getMaxPldLen() << " bytes" << std::endl;
+        }
+
+        // Reset global buffer ID counter
+        global_buffer_id = 0;
+
+        // Spawn threads for parallel file processing
+        std::cout << "\nSpawning " << args.file_paths.size()
+                  << " thread(s) for file processing..." << std::endl;
+
+        std::vector<std::future<bool>> futures;
+        for (size_t i = 0; i < args.file_paths.size(); ++i) {
+            std::cout << "  Thread " << i << ": " << args.file_paths[i] << std::endl;
+
+            futures.push_back(std::async(std::launch::async,
+                processRootFile,
+                args.file_paths[i],
+                args.tree_name,
+                std::cref(args),
+                segmenter.get(),
+                i));
+        }
+
+        // Wait for all threads to complete
+        std::cout << "\nWaiting for all threads to complete..." << std::endl;
+        for (size_t i = 0; i < futures.size(); ++i) {
+            bool result = futures[i].get();
+            if (result) {
                 success_count++;
             } else {
                 failure_count++;
+                std::cerr << "Thread " << i << " failed" << std::endl;
+            }
+        }
+
+        // Print final Segmenter statistics if sending
+        if (segmenter) {
+            // Give the segmenter time to flush remaining data
+            std::cout << "\nWaiting for send queues to drain..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+            auto send_stats = segmenter->getSendStats();
+
+            std::cout << "\n========== E2SAR Final Statistics ==========" << std::endl;
+            std::cout << "Total network frames sent: " << send_stats.msgCnt << std::endl;
+            std::cout << "Send errors: " << send_stats.errCnt << std::endl;
+            std::cout << "Total buffers submitted: " << global_buffer_id.load() << std::endl;
+
+            if (send_stats.errCnt > 0) {
+                std::cerr << "WARNING: Errors occurred during sending" << std::endl;
             }
         }
 
