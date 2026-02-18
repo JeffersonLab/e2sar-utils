@@ -10,6 +10,9 @@ services:
   - class: HaidisActor
     name: haidis
     lang: cpp
+  - class: HaidisLinkActor
+    name: hlink
+    lang: cpp
 configuration:
   io-services:
     reader:
@@ -20,6 +23,10 @@ configuration:
       et_host: "localhost"
       et_port: 23911
       station_name: "haidis"
+      verbose: false
+    hlink:
+      shmem_name: haidis_shmem
+      sem_name: haidis_sem
       verbose: false
 mime-types:
   - binary/sint32

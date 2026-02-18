@@ -8,3 +8,6 @@ export ERSAP_HOME=`pwd`/ersap
 export ERSAP_USER_DATA=`pwd`/ersap-data
 
 export PATH=${CODA_BIN}:${CODA}/common/bin:${ERSAP_HOME}/bin:${PATH}
+
+$ERSAP_HOME/bin/kill_dpe.sh
+

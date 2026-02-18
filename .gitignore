@@ -19,6 +19,8 @@ meson-private/
 
 # Compiled Dynamic libraries
 *.so
+!coda/Linux-x86_64/lib/
+!coda/Linux-x86_64/lib/*.so
 *.dylib
 *.dll
 
