@@ -135,6 +135,13 @@ must be properly set before running the application.
 docker run -it --network=host --entrypoint /bin/bash -e EJFAT_URI=$EJFAT_URI -e RECV_IP=$RECV_IP haidis-dp:latest
 ```
 
+#### Pushing the docker image to docker hub
+```
+docker login
+docker tag haidis-dp:latest gurjyan/haidis-dp:latest
+docker push gurjyan/haidis-dp:latest
+```
+
 ## License
 
 TBD
