@@ -47,12 +47,12 @@ cd "${WORKDIR}"
 # We'll create a temporary modified version that skips the ROOT sourcing line
 ENV_FILE="${WORKDIR}/env.sh"
 if [ -f "${ENV_FILE}" ]; then
-    # Export variables that env.sh sets
-    export CODA="${WORKDIR}/coda"
+    # Use existing values if set (from Dockerfile ENV or docker run -e), else fall back to defaults
+    export CODA="${CODA:-${WORKDIR}/coda}"
     export CODA_BIN="${CODA}/${MACHINE}/bin"
     export CODA_LIB="${CODA}/${MACHINE}/lib"
-    export ERSAP_HOME="${WORKDIR}/ersap"
-    export ERSAP_USER_DATA="${WORKDIR}/ersap-data"
+    export ERSAP_HOME="${ERSAP_HOME:-${WORKDIR}/ersap}"
+    export ERSAP_USER_DATA="${ERSAP_USER_DATA:-${WORKDIR}/ersap-data}"
     export PATH="${CODA_BIN}:${CODA}/common/bin:${ERSAP_HOME}/bin:${PATH}"
     export LD_LIBRARY_PATH="${CODA_LIB}:${LD_LIBRARY_PATH:-}"
 
@@ -180,7 +180,17 @@ fi
 
 echo "✓ ersap-et-receiver is running"
 
-# Step 6: Start ERSAP in foreground (as PID 1 for proper signal handling)
+# Step 6: Kill any stale DPE processes before starting fresh
+echo "----------------------------------------"
+echo "Cleaning up stale DPE processes..."
+if [ -f "${ERSAP_HOME}/bin/kill_dpe.sh" ]; then
+    "${ERSAP_HOME}/bin/kill_dpe.sh"
+    echo "✓ kill_dpe.sh completed"
+else
+    echo "WARNING: ${ERSAP_HOME}/bin/kill_dpe.sh not found, skipping"
+fi
+
+# Step 7: Start ERSAP in foreground (as PID 1 for proper signal handling)
 echo "----------------------------------------"
 echo "Starting ERSAP..."
 ERSAP_SCRIPT="${ERSAP_USER_DATA}/haidis.ersap"

@@ -163,8 +163,16 @@ WORKDIR ${WORKDIR}
 # Set CODA environment variable to point to coda directory
 ENV CODA=${WORKDIR}/coda
 
-# Update PATH to include E2SAR, CODA, and ERSAP binaries
-ENV PATH=${E2SARINSTALL}/bin:${WORKDIR}/coda/${MACHINE}/bin:${WORKDIR}/coda/common/bin:${WORKDIR}/ersap/bin:$PATH
+# ERSAP installation and user data paths (overridable at runtime via docker run -e)
+ENV ERSAP_HOME=${WORKDIR}/ersap
+ENV ERSAP_USER_DATA=${WORKDIR}/ersap-data
+
+# Detect JAVA_HOME dynamically and create a stable symlink for ENV
+RUN ln -sfn $(dirname $(dirname $(readlink -f $(which java)))) /usr/local/java-home
+ENV JAVA_HOME=/usr/local/java-home
+
+# Update PATH to include E2SAR, CODA, ERSAP binaries, and Java
+ENV PATH=${JAVA_HOME}/bin:${E2SARINSTALL}/bin:${WORKDIR}/coda/${MACHINE}/bin:${WORKDIR}/coda/common/bin:${WORKDIR}/ersap/bin:$PATH
 
 # Update LD_LIBRARY_PATH to include CODA libraries for ET shared objects
 ENV LD_LIBRARY_PATH=${WORKDIR}/coda/${MACHINE}/lib:/usr/local/lib
