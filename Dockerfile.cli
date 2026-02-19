@@ -163,9 +163,14 @@ WORKDIR ${WORKDIR}
 # Set CODA environment variable to point to coda directory
 ENV CODA=${WORKDIR}/coda
 
-# ERSAP installation and user data paths (overridable at runtime via docker run -e)
+# ERSAP installation path
 ENV ERSAP_HOME=${WORKDIR}/ersap
-ENV ERSAP_USER_DATA=${WORKDIR}/ersap-data
+
+# ERSAP user data directory.
+# Default is /user_data.  Override at runtime: docker run -e ERSAP_USER_DATA=/custom/path ...
+# Mount a host directory here: docker run -v /host/data:/user_data ...
+# Do NOT bake application data into the image; supply it via a bind-mount at runtime.
+ENV ERSAP_USER_DATA=/user_data
 
 # Detect JAVA_HOME dynamically and create a stable symlink for ENV
 RUN ln -sfn $(dirname $(dirname $(readlink -f $(which java)))) /usr/local/java-home
@@ -191,8 +196,10 @@ COPY --from=compile $E2SARINSTALL $E2SARINSTALL
 # Copy entire build context (coda/, ersap/, env.sh, etc.) to /work
 COPY . ${WORKDIR}/
 
-# Create ersap-data directory if it doesn't exist
-RUN mkdir -p ${WORKDIR}/ersap-data
+# Create the default user-data directory.
+# chmod 1777 (sticky + world-rwx) lets any UID write here.
+# When a bind-mount is provided the host directory takes precedence.
+RUN mkdir -p /user_data && chmod 1777 /user_data
 
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

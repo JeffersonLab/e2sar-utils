@@ -60,11 +60,33 @@ if [ -f "${ENV_FILE}" ]; then
     echo "✓ CODA_BIN: ${CODA_BIN}"
     echo "✓ CODA_LIB: ${CODA_LIB}"
     echo "✓ ERSAP_HOME: ${ERSAP_HOME}"
-    echo "✓ ERSAP_USER_DATA: ${ERSAP_USER_DATA}"
     echo "✓ LD_LIBRARY_PATH: ${LD_LIBRARY_PATH}"
 else
     echo "WARNING: ${ENV_FILE} not found, environment may not be complete"
 fi
+
+# Step 3b: Validate / prepare ERSAP_USER_DATA
+echo "----------------------------------------"
+echo "ERSAP_USER_DATA=${ERSAP_USER_DATA}"
+if [ -z "${ERSAP_USER_DATA:-}" ]; then
+    echo "ERROR: ERSAP_USER_DATA is not set."
+    echo "Set it via:  docker run -e ERSAP_USER_DATA=/path/to/data ..."
+    exit 1
+fi
+
+if [ ! -d "${ERSAP_USER_DATA}" ]; then
+    echo "WARNING: ERSAP_USER_DATA directory not found at ${ERSAP_USER_DATA}"
+    echo "Attempting to create it..."
+    if mkdir -p "${ERSAP_USER_DATA}" 2>/dev/null; then
+        echo "✓ Created ${ERSAP_USER_DATA}"
+    else
+        echo "ERROR: Could not create ${ERSAP_USER_DATA}"
+        echo "Mount a host directory at container start:"
+        echo "  docker run -v /host/data:${ERSAP_USER_DATA} -e EJFAT_URI=<uri> ..."
+        exit 1
+    fi
+fi
+echo "✓ ERSAP_USER_DATA: ${ERSAP_USER_DATA}"
 
 # Step 4: Start ET system in background
 echo "----------------------------------------"
@@ -207,6 +229,9 @@ fi
 # Check if ERSAP script exists
 if [ ! -f "${ERSAP_SCRIPT}" ]; then
     echo "ERROR: ERSAP script not found at ${ERSAP_SCRIPT}"
+    echo "Mount a host directory that contains haidis.ersap:"
+    echo "  docker run -v /host/data:${ERSAP_USER_DATA} -e EJFAT_URI=<uri> ..."
+    echo "  or: docker run -v /host/data:/custom -e ERSAP_USER_DATA=/custom -e EJFAT_URI=<uri> ..."
     exit 1
 fi
 

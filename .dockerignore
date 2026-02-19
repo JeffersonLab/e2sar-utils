@@ -11,8 +11,12 @@ Dockerfile*
 .git
 .gitignore
 
-# Ignore data 
+# Ignore data
 dalitz_toy_data_*
+
+# Never bake user-data into the image; supply it via a bind-mount at runtime.
+# See ERSAP_USER_DATA in Dockerfile.cli and entrypoint.sh.
+ersap-data/
 
 .claude
 
