@@ -325,7 +325,7 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     size_t num_threads,
     int event_timeout_ms,
     bool withCP,
-    bool validate) {
+    bool validateCert) {
 
     std::cout << "\nInitializing E2SAR Reassembler..." << std::endl;
 
@@ -356,7 +356,7 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
     // When using control plane, LB strips/modifies the header
     rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
-    rflags.validateCert = validate;
+    rflags.validateCert = validateCert;
 
     // Create Reassembler
     auto reassembler = std::make_unique<e2sar::Reassembler>(
