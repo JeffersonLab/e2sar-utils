@@ -50,7 +50,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --e2sarimage)
-            ERSAPIMAGE="$2"
+            E2SARIMAGE="$2"
             shift 2
             ;;
         --help)
@@ -140,7 +140,7 @@ echo "========================================="
 echo "Phase 1: Validate EJFAT LB Reservation: "
 echo "========================================="
 
-# Try to run lbadm --overview to check if the reservation is valid
+# Try to run lbadm --status to check if the reservation is valid
 if podman-hpc run -e EJFAT_URI="$EJFAT_URI" --rm --network host $E2SARIMAGE lbadm -4 -v --status &>/dev/null; then
     echo "Existing reservation is valid"
 else
@@ -156,8 +156,6 @@ fi
 cat > $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh << EOF
 #!/bin/bash
 
-echo "Variables: $EJFAT_URI, $SCRIPT_DIR, $CONTAINER_TIMEOUT"
-
 DATA_IPv4=$(echo "$EJFAT_URI" | grep -oP 'data=\K([0-9]{1,3}\.){3}[0-9]{1,3}')
 DATA_IPv6=$(echo "$EJFAT_URI" | grep -oP 'data=\[\K[0-9a-fA-F:]+(?=\])')
 
@@ -170,30 +168,30 @@ if [[ -z "\$RECEIVER_IP" ]]; then
 fi
 
 echo "Receiver IP: \$RECEIVER_IP"
-echo "ERSAP Config in: $SCRIPT_DIR/ersap-data"
-echo "SAGIPS Config in: $SCRIPT_DIR/"
+echo "ERSAP Config in: $SCRIPT_DIR/ersap-data/config/"
+echo "SAGIPS Config in: $SCRIPT_DIR/sagips.yaml"
 
 timeout ${CONTAINER_TIMEOUT} podman-hpc run \
-  --network=host --ipc=host --rm --group-add keep-groups \
-  -v $SCRIPT_DIR/ersap-data:/user_data \
-  -e EJFAT_URI='$EJFAT_URI' \
-  -e RECV_IP=\$RECEIVER_IP \
-  $ERSAPIMAGE &
+    --network=host --ipc=host --rm --group-add keep-groups \
+    -v $SCRIPT_DIR/ersap-data:/user_data \
+    -e EJFAT_URI='$EJFAT_URI' \
+    -e RECV_IP=\$RECEIVER_IP \
+    $ERSAPIMAGE > $JOB_DIR/ersap_\$(hostname).log 2>&1 &
 
 ERSAP_PID=\$!
 
 sleep 5
 
 timeout ${CONTAINER_TIMEOUT} podman-hpc run \
-  -it --rm --group-add keep-groups \
-  --ipc=host \
-  --security-opt=label=disable \
-  --gpus all \
-  -v $SCRIPT_DIR/outputs:/app/outputs:Z \
-  -v $SCRIPT_DIR/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
-  $SAGIPSIMAGE \
-  uv run /app/src/haidis_ips/dalitz_shmem_workflow.py \
-    -cn sagips & 
+    -i --rm --group-add keep-groups \
+    --ipc=host \
+    --security-opt=label=disable \
+    --gpus all \
+    -v $SCRIPT_DIR/outputs:/app/outputs:Z \
+    -v $SCRIPT_DIR/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
+    $SAGIPSIMAGE \
+    uv run /app/src/haidis_ips/dalitz_shmem_workflow.py \
+      -cn sagips > $JOB_DIR/sagips_\$(hostname).log 2>&1 &
 
 SAGIPS_PID=\$!
 
@@ -204,8 +202,7 @@ EOF
 
 chmod +x $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh
 echo "========================================="
-echo "Launcher Script"
-cat $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh
+echo "Launcher Script in $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh"
 echo "========================================="
 
 # Run the launcher script once per node
@@ -213,10 +210,8 @@ echo "========================================="
 # --ntasks-per-node=1 ensures exactly one per node
 srun --ntasks=${SLURM_NNODES} \
      --ntasks-per-node=1 \
-     bash $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh > haidis_containers.log 2>&1
-
-
-#     --gpus-per-task=4 \
+     --gpus-per-task=4 \
+     bash $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh > launcher.log 2>&1
 
 echo "All node pairs completed"
 
@@ -227,13 +222,15 @@ echo "All node pairs completed"
 echo "========================================="
 echo "Test Summary"
 echo "========================================="
-echo "Job ID: $SLURM_JOB_ID"
+echo "Job ID:        $SLURM_JOB_ID"
 echo "Job directory: $JOB_DIR"
 echo ""
 
 echo "Logs available at:"
-echo "  - Sender log: $JOB_DIR/haidis_containers.log"
-echo "  - Launcher script: $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh
+echo "  - SBatch logs:             $RUNS_DIR/slurm-<job id>.out/.err"
+echo "  - Container Launcher log:  $JOB_DIR/launcher.log"
+echo "  - ERSAP logs:              $JOB_DIR/ersap_<node>.log"
+echo "  - SAGIPS logs:             $JOB_DIR/sagips_<node>.log"
 echo ""
 
 echo "========================================="
