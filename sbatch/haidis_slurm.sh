@@ -20,14 +20,15 @@
 
 #SBATCH -N 1
 ##SBATCH -C cpu
-#SBATCH --account=m3792
+#SBATCH --account=amsc016
 #SBATCH --qos=debug
 #SBATCH -t 00:30:00
 #SBATCH -o runs/slurm-%j.out
 #SBATCH -e runs/slurm-%j.err
 #SBATCH --constraint=gpu
-#SBATCH --gpus-per-task=4
-#SBATCH --chdir=/global/cfs/cdirs/m3792/haidis/
+#SBATCH --gpus-per-node=4
+#SBATCH --gpu-bind=none
+#SBATCH --chdir=/global/cfs/cdirs/amsc016/haidis/
 
 set -euo pipefail
 
@@ -187,6 +188,7 @@ timeout ${CONTAINER_TIMEOUT} podman-hpc run \
     --ipc=host \
     --security-opt=label=disable \
     --gpus all \
+    -e CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES \
     -v $SCRIPT_DIR/outputs:/app/outputs:Z \
     -v $SCRIPT_DIR/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
     $SAGIPSIMAGE \
@@ -210,7 +212,8 @@ echo "========================================="
 # --ntasks-per-node=1 ensures exactly one per node
 srun --ntasks=${SLURM_NNODES} \
      --ntasks-per-node=1 \
-     --gpus-per-task=4 \
+     --gpus-per-node=4 \
+     --gpu-bind=none \
      bash $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh > launcher.log 2>&1
 
 echo "All node pairs completed"
