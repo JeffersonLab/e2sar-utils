@@ -188,12 +188,12 @@ timeout ${CONTAINER_TIMEOUT} podman-hpc run \
     --ipc=host \
     --security-opt=label=disable \
     --gpus all \
-    -e CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES \
     -v $SCRIPT_DIR/outputs:/app/outputs:Z \
     -v $SCRIPT_DIR/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
     $SAGIPSIMAGE \
-    uv run /app/src/haidis_ips/dalitz_shmem_workflow.py \
-      -cn sagips > $JOB_DIR/sagips_\$(hostname).log 2>&1 &
+    /opt/mpich/install/bin/mpirun -n 4 \
+      bash -c 'CUDA_VISIBLE_DEVICES=\$MPI_LOCALRANKID uv run /app/src/haidis_ips/dalitz_shmem_workflow.py -cn sagips' \
+    > $JOB_DIR/sagips_\$(hostname).log 2>&1 &
 
 SAGIPS_PID=\$!
 
