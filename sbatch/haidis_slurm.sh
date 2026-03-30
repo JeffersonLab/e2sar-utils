@@ -202,7 +202,6 @@ chmod +x $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh
 # Launch ERSAP on all nodes simultaneously, in the background
 srun --ntasks=${SLURM_NNODES} \
      --ntasks-per-node=1 \
-     --gpus-per-node=0 \
      --overlap \
      bash $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh &
 
@@ -213,11 +212,8 @@ sleep 10
 #=============================================================================
 # Phase 3: Launch SAGIPS via a single srun spanning all nodes
 #
-# srun acts as the MPI launcher via PMI2, spawning GPUS_PER_NODE tasks per
-# node. Each task runs one container instance with one Python rank. Slurm
-# propagates MPI rank information through PMI2 so mpi4py sees the correct
-# global rank and world size across all nodes, enabling cross-node gradient
-# aggregation via MPI Allreduce.
+# srun acts as the MPI launcher injecting Cray MPICH with PMIx support
+# which podman-hpc --mpi picks up
 #
 # SLURM_LOCALID (0..GPUS_PER_NODE-1) is used for CUDA_VISIBLE_DEVICES so
 # each rank is pinned to its own GPU. SLURM_NODEID is used to route output
@@ -227,60 +223,22 @@ echo "========================================="
 echo "Phase 3: Starting SAGIPS ($TOTAL_RANKS total ranks)"
 echo "========================================="
 
-# Generate the per-rank SAGIPS wrapper script
-# This is invoked once per rank by srun, with Slurm env vars set per rank
-cat > $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh << 'WRAPPER_EOF'
-#!/bin/bash
-# This script is invoked once per rank by srun.
-# Slurm sets SLURM_LOCALID (local rank within node) and SLURM_NODEID.
-# PMI2 environment is set by srun for mpi4py rank detection.
 
-echo "[$(hostname)] SAGIPS rank wrapper starting: SLURM_LOCALID=$SLURM_LOCALID SLURM_NODEID=$SLURM_NODEID"
-
-podman-hpc run --rm \
-    --ipc=host \
-    --network=host \
-    --security-opt=label=disable \
-    --gpus all \
-    -e CUDA_VISIBLE_DEVICES=$SLURM_LOCALID \
-    -e PMI_FD=$PMI_FD \
-    -e PMI_RANK=$PMI_RANK \
-    -e PMI_SIZE=$PMI_SIZE \
-    -e SLURM_LOCALID=$SLURM_LOCALID \
-    -e SLURM_NODEID=$SLURM_NODEID \
-    -e SLURM_PROCID=$SLURM_PROCID \
-    -e SLURM_GTIDS=$SLURM_GTIDS \
-    -v SCRIPT_DIR_PLACEHOLDER/outputs/$(hostname):/app/outputs \
-    -v SCRIPT_DIR_PLACEHOLDER/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
-    SAGIPSIMAGE_PLACEHOLDER \
-    /opt/mpich/install/bin/mpirun -n 1 \
-      python /app/src/haidis_ips/dalitz_shmem_workflow.py \
-        -cn sagips \
-        hydra.run.dir=/app/outputs/hydra_rank${SLURM_LOCALID}
-
-EXIT_CODE=$?
-echo "[$(hostname)] SAGIPS rank $SLURM_LOCALID exited with code $EXIT_CODE"
-exit $EXIT_CODE
-WRAPPER_EOF
-
-# Substitute the values that need to come from the batch script context
-sed -i "s|SCRIPT_DIR_PLACEHOLDER|${SCRIPT_DIR}|g" $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
-sed -i "s|SAGIPSIMAGE_PLACEHOLDER|${SAGIPSIMAGE}|g" $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
-chmod +x $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
-
-echo "SAGIPS rank wrapper: $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh"
-
-# Single srun spanning all nodes, one task per GPU.
-# srun uses PMI2 to provide MPI rank information to each task,
-# enabling mpi4py inside each container to form a single global communicator.
 srun --ntasks=${TOTAL_RANKS} \
      --ntasks-per-node=${GPUS_PER_NODE} \
      --gpus-per-node=${GPUS_PER_NODE} \
      --gpu-bind=none \
-     --mpi=pmi2 \
      --overlap \
-     bash $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh \
-     > $JOB_DIR/sagips.log 2>&1
+     podman-hpc run --rm --mpi \
+         --ipc=host \
+         --security-opt=label=disable \
+         --gpus all \
+         -v ${SCRIPT_DIR}/outputs/${NODE_ARRAY[0]}:/app/outputs \
+         -v ${SCRIPT_DIR}/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
+         ${SAGIPSIMAGE} \
+         uv run /app/src/haidis_ips/dalitz_shmem_workflow.py \
+           -cn sagips \
+           hydra.run.dir=/app/outputs/hydra
 
 SAGIPS_EXIT=$?
 echo "SAGIPS srun completed with exit code $SAGIPS_EXIT"
@@ -311,7 +269,7 @@ echo ""
 echo "Logs available at:"
 echo "  - SBatch logs:          $RUNS_DIR/slurm-${SLURM_JOB_ID}.out/.err"
 echo "  - ERSAP logs:           $JOB_DIR/ersap_<node>.log"
-echo "  - SAGIPS combined log:  $JOB_DIR/sagips.log"
+echo "  - SAGIPS output:        $RUNS_DIR/slurm-${SLURM_JOB_ID}.out"
 echo "  - Per-node outputs:     $SCRIPT_DIR/outputs/<node>/"
 echo ""
 echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
