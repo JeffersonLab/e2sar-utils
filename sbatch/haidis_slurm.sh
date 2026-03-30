@@ -1,25 +1,28 @@
 #!/bin/bash
-# Minimal SLURM batch script for E2SAR sender/receiver tests on Perlmutter
+# SLURM batch script for HAIDIS on Perlmutter
 #
 # SLURM Options (can be overridden via sbatch):
-#   -N 1              Number of nodes 
+#   -N 1              Number of nodes (override with -N on sbatch command line)
 #   -q debug          Queue (debug or regular)
 #   -t 00:30:00       Time limit
 #   -A <allocation>   Project allocation
 #
-# Other Options (passed to haidis_slurm.sh):
+# Other Options:
 #   --sagipsimage IMAGE  Container image (default: codecr.jlab.org/datascience/haidis-ips/nersc_base)
 #   --ersapimage IMAGE   Container image (default: docker.io/gurjyan/haidis-dp:latest)
 #   --e2sarimage IMAGE   Container image (default: docker.io/ibaldin/e2sar:0.3.1)
+#   --gpus-per-node N    Number of GPUs per node (default: 4)
 #
 # Environment Variables:
 #   EJFAT_URI         Required: EJFAT load balancer URI
 #
-# Example:
-#   EJFAT_URI="ejfat://..." sbatch -A <project> haidis_slurm.sh --ersapimage haidis-dp:latest 
+# Example (single node):
+#   EJFAT_URI="ejfat://..." sbatch -N 1 -A <project> haidis_slurm.sh
+#
+# Example (multi-node):
+#   EJFAT_URI="ejfat://..." sbatch -N 4 -A <project> haidis_slurm.sh
 
-#SBATCH -N 1
-##SBATCH -C cpu
+##SBATCH -N 1              # commented out - pass -N on sbatch command line
 #SBATCH --account=amsc016
 #SBATCH --qos=debug
 #SBATCH -t 00:30:00
@@ -39,6 +42,7 @@ set -euo pipefail
 SAGIPSIMAGE="codecr.jlab.org/datascience/haidis-ips/nersc_base"
 ERSAPIMAGE="docker.io/gurjyan/haidis-dp:latest"
 E2SARIMAGE="docker.io/ibaldin/e2sar:0.3.1"
+GPUS_PER_NODE=4
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -52,6 +56,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --e2sarimage)
             E2SARIMAGE="$2"
+            shift 2
+            ;;
+        --gpus-per-node)
+            GPUS_PER_NODE="$2"
             shift 2
             ;;
         --help)
@@ -70,11 +78,16 @@ done
 # Environment setup
 #=============================================================================
 
+TOTAL_RANKS=$((SLURM_NNODES * GPUS_PER_NODE))
+
 echo "========================================="
 echo "HAIDIS Test - SLURM Job $SLURM_JOB_ID running in $PWD"
 echo "SAGIPS IMAGE: ${SAGIPSIMAGE}"
 echo "ERSAP IMAGE:  ${ERSAPIMAGE}"
 echo "E2SAR IMAGE:  ${E2SARIMAGE}"
+echo "Nodes:        ${SLURM_NNODES}"
+echo "GPUs/node:    ${GPUS_PER_NODE}"
+echo "Total ranks:  ${TOTAL_RANKS}"
 echo "========================================="
 echo "Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo ""
@@ -83,7 +96,7 @@ echo ""
 get_slurm_timelimit_seconds() {
     local time_str=$(scontrol show job $SLURM_JOB_ID | grep -oP 'TimeLimit=\K[^ ]+')
     local seconds=0
-    
+
     if [[ $time_str =~ ^([0-9]+)-([0-9]+):([0-9]+):([0-9]+)$ ]]; then
         seconds=$(( ${BASH_REMATCH[1]} * 86400 + ${BASH_REMATCH[2]} * 3600 + ${BASH_REMATCH[3]} * 60 + ${BASH_REMATCH[4]} ))
     elif [[ $time_str =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
@@ -91,14 +104,11 @@ get_slurm_timelimit_seconds() {
     elif [[ $time_str =~ ^([0-9]+):([0-9]+)$ ]]; then
         seconds=$(( ${BASH_REMATCH[1]} * 60 + ${BASH_REMATCH[2]} ))
     fi
-    
+
     echo $seconds
 }
 
-
 SLURM_TIMEOUT=$(get_slurm_timelimit_seconds)
-
-# containers will timeout 30 seconds before to give them time to shutdown
 CONTAINER_TIMEOUT=$((SLURM_TIMEOUT - 30))
 echo "Container timeout set to: ${CONTAINER_TIMEOUT}s"
 
@@ -113,35 +123,38 @@ echo "EJFAT_URI: $EJFAT_URI"
 echo "Job nodes: $SLURM_JOB_NODELIST"
 echo ""
 
-# Get script directory where various configs reside
 SCRIPT_DIR="$PWD"
 echo "Script directory: $SCRIPT_DIR"
 
-# Create runs directory if it doesn't exist
 RUNS_DIR="${SCRIPT_DIR}/runs"
 mkdir -p "$RUNS_DIR"
-echo "Runs directory: $RUNS_DIR"
 
-# Create job-specific working directory for logs
 JOB_DIR="${RUNS_DIR}/slurm_job_${SLURM_JOB_ID}"
 mkdir -p "$JOB_DIR"
-cd "$JOB_DIR"
-echo "Working directory: $JOB_DIR"
+echo "Job directory: $JOB_DIR"
+
+NODE_ARRAY=($(scontrol show hostname $SLURM_JOB_NODELIST))
+echo "Nodes: ${NODE_ARRAY[@]}"
 echo ""
 
-# SLURM_JOB_NODELIST format examples: "nid[001-002]", "nid001,nid002"
-NODE_ARRAY=($(scontrol show hostname $SLURM_JOB_NODELIST))
-echo "Nodes: $NODE_ARRAY"
+# Pre-create per-node output directories on the shared filesystem
+# so Hydra doesn't fail trying to create them inside the container
+for node in "${NODE_ARRAY[@]}"; do
+    mkdir -p "$SCRIPT_DIR/outputs/$node"
+done
+echo "Created per-node output directories"
+
+# Extract data plane IP from EJFAT_URI once, in the batch script context
+DATA_IPv4=$(echo "$EJFAT_URI" | grep -oP 'data=\K([0-9]{1,3}\.){3}[0-9]{1,3}')
 
 #=============================================================================
 # Phase 1: Check load balancer status
 #=============================================================================
 export EJFAT_URI
 echo "========================================="
-echo "Phase 1: Validate EJFAT LB Reservation: "
+echo "Phase 1: Validate EJFAT LB Reservation"
 echo "========================================="
 
-# Try to run lbadm --status to check if the reservation is valid
 if podman-hpc run -e EJFAT_URI="$EJFAT_URI" --rm --network host $E2SARIMAGE lbadm -4 -v --status &>/dev/null; then
     echo "Existing reservation is valid"
 else
@@ -150,95 +163,158 @@ else
 fi
 
 #=============================================================================
-# Phase 2: Start container pairs
+# Phase 2: Launch ERSAP containers - one per node, in parallel
+#
+# ERSAP is launched via srun as a separate step, one task per node.
+# Each node's ERSAP writes to the node-local IPC shared memory segment.
+# This step runs in the background so Phase 3 can follow after a short delay.
 #=============================================================================
+echo "========================================="
+echo "Phase 2: Starting ERSAP containers"
+echo "========================================="
 
-# generate launcher script (note EOF not quoted to allow expansion from outer script)
-cat > $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh << EOF
+# Generate the ERSAP launcher script
+cat > $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh << EOF
 #!/bin/bash
+# Runs once per node via srun --ntasks-per-node=1
 
-DATA_IPv4=$(echo "$EJFAT_URI" | grep -oP 'data=\K([0-9]{1,3}\.){3}[0-9]{1,3}')
-DATA_IPv6=$(echo "$EJFAT_URI" | grep -oP 'data=\[\K[0-9a-fA-F:]+(?=\])')
-
-# Find source IP for route to LB dataplane
-RECEIVER_IP=\$(ip route get "\$DATA_IPv4" | head -1 | sed 's/^.*src//' | awk '{print \$1}')
+RECEIVER_IP=\$(ip route get "${DATA_IPv4}" | head -1 | sed 's/^.*src//' | awk '{print \$1}')
 
 if [[ -z "\$RECEIVER_IP" ]]; then
-    echo "ERROR: Failed to detect receiver IP to use with ERSAP"
+    echo "ERROR: [\$(hostname)] Failed to detect receiver IP"
     exit 1
 fi
 
-echo "Receiver IP: \$RECEIVER_IP"
-echo "ERSAP Config in: $SCRIPT_DIR/ersap-data/config/"
-echo "SAGIPS Config in: $SCRIPT_DIR/sagips.yaml"
+echo "[\$(hostname)] ERSAP starting, receiver IP: \$RECEIVER_IP"
 
 timeout ${CONTAINER_TIMEOUT} podman-hpc run \
     --network=host --ipc=host --rm --group-add keep-groups \
-    -v $SCRIPT_DIR/ersap-data:/user_data \
-    -e EJFAT_URI='$EJFAT_URI' \
+    -v ${SCRIPT_DIR}/ersap-data:/user_data \
+    -e EJFAT_URI='${EJFAT_URI}' \
     -e RECV_IP=\$RECEIVER_IP \
-    $ERSAPIMAGE > $JOB_DIR/ersap_\$(hostname).log 2>&1 &
+    ${ERSAPIMAGE} > ${JOB_DIR}/ersap_\$(hostname).log 2>&1
 
-ERSAP_PID=\$!
-
-sleep 5
-
-timeout ${CONTAINER_TIMEOUT} podman-hpc run \
-    -i --rm --group-add keep-groups \
-    --ipc=host \
-    --security-opt=label=disable \
-    --gpus all \
-    -v $SCRIPT_DIR/outputs:/app/outputs:Z \
-    -v $SCRIPT_DIR/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
-    $SAGIPSIMAGE \
-    /opt/mpich/install/bin/mpirun -n 4 \
-      bash -c 'CUDA_VISIBLE_DEVICES=\$MPI_LOCALRANKID uv run /app/src/haidis_ips/dalitz_shmem_workflow.py -cn sagips' \
-    > $JOB_DIR/sagips_\$(hostname).log 2>&1 &
-
-SAGIPS_PID=\$!
-
-wait \$ERSAP_PID
-wait \$SAGIPS_PID
-
+echo "[\$(hostname)] ERSAP exited with code \$?"
 EOF
 
-chmod +x $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh
-echo "========================================="
-echo "Launcher Script in $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh"
-echo "========================================="
+chmod +x $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh
 
-# Run the launcher script once per node
-# --ntasks=${SLURM_NNODES} ensures one task per node
-# --ntasks-per-node=1 ensures exactly one per node
+# Launch ERSAP on all nodes simultaneously, in the background
 srun --ntasks=${SLURM_NNODES} \
      --ntasks-per-node=1 \
-     --gpus-per-node=4 \
+     --gpus-per-node=0 \
+     --overlap \
+     bash $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh &
+
+ERSAP_SRUN_PID=$!
+echo "ERSAP srun launched (PID $ERSAP_SRUN_PID), waiting for shmem to be populated..."
+sleep 10
+
+#=============================================================================
+# Phase 3: Launch SAGIPS via a single srun spanning all nodes
+#
+# srun acts as the MPI launcher via PMI2, spawning GPUS_PER_NODE tasks per
+# node. Each task runs one container instance with one Python rank. Slurm
+# propagates MPI rank information through PMI2 so mpi4py sees the correct
+# global rank and world size across all nodes, enabling cross-node gradient
+# aggregation via MPI Allreduce.
+#
+# SLURM_LOCALID (0..GPUS_PER_NODE-1) is used for CUDA_VISIBLE_DEVICES so
+# each rank is pinned to its own GPU. SLURM_NODEID is used to route output
+# to the per-node directory.
+#=============================================================================
+echo "========================================="
+echo "Phase 3: Starting SAGIPS ($TOTAL_RANKS total ranks)"
+echo "========================================="
+
+# Generate the per-rank SAGIPS wrapper script
+# This is invoked once per rank by srun, with Slurm env vars set per rank
+cat > $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh << 'WRAPPER_EOF'
+#!/bin/bash
+# This script is invoked once per rank by srun.
+# Slurm sets SLURM_LOCALID (local rank within node) and SLURM_NODEID.
+# PMI2 environment is set by srun for mpi4py rank detection.
+
+echo "[$(hostname)] SAGIPS rank wrapper starting: SLURM_LOCALID=$SLURM_LOCALID SLURM_NODEID=$SLURM_NODEID"
+
+podman-hpc run --rm \
+    --ipc=host \
+    --network=host \
+    --security-opt=label=disable \
+    --gpus all \
+    -e CUDA_VISIBLE_DEVICES=$SLURM_LOCALID \
+    -e PMI_FD=$PMI_FD \
+    -e PMI_RANK=$PMI_RANK \
+    -e PMI_SIZE=$PMI_SIZE \
+    -e SLURM_LOCALID=$SLURM_LOCALID \
+    -e SLURM_NODEID=$SLURM_NODEID \
+    -e SLURM_PROCID=$SLURM_PROCID \
+    -e SLURM_GTIDS=$SLURM_GTIDS \
+    -v SCRIPT_DIR_PLACEHOLDER/outputs/$(hostname):/app/outputs \
+    -v SCRIPT_DIR_PLACEHOLDER/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
+    SAGIPSIMAGE_PLACEHOLDER \
+    /opt/mpich/install/bin/mpirun -n 1 \
+      python /app/src/haidis_ips/dalitz_shmem_workflow.py \
+        -cn sagips \
+        hydra.run.dir=/app/outputs/hydra_rank${SLURM_LOCALID}
+
+EXIT_CODE=$?
+echo "[$(hostname)] SAGIPS rank $SLURM_LOCALID exited with code $EXIT_CODE"
+exit $EXIT_CODE
+WRAPPER_EOF
+
+# Substitute the values that need to come from the batch script context
+sed -i "s|SCRIPT_DIR_PLACEHOLDER|${SCRIPT_DIR}|g" $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
+sed -i "s|SAGIPSIMAGE_PLACEHOLDER|${SAGIPSIMAGE}|g" $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
+chmod +x $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh
+
+echo "SAGIPS rank wrapper: $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh"
+
+# Single srun spanning all nodes, one task per GPU.
+# srun uses PMI2 to provide MPI rank information to each task,
+# enabling mpi4py inside each container to form a single global communicator.
+srun --ntasks=${TOTAL_RANKS} \
+     --ntasks-per-node=${GPUS_PER_NODE} \
+     --gpus-per-node=${GPUS_PER_NODE} \
      --gpu-bind=none \
-     bash $JOB_DIR/node_launcher_${SLURM_JOB_ID}.sh > launcher.log 2>&1
+     --mpi=pmi2 \
+     --overlap \
+     bash $JOB_DIR/sagips_rank_wrapper_${SLURM_JOB_ID}.sh \
+     > $JOB_DIR/sagips.log 2>&1
 
-echo "All node pairs completed"
+SAGIPS_EXIT=$?
+echo "SAGIPS srun completed with exit code $SAGIPS_EXIT"
 
 #=============================================================================
-# Summary and Log Collection
+# Cleanup: shut down ERSAP containers
 #=============================================================================
+echo "========================================="
+echo "Shutting down ERSAP containers"
+echo "========================================="
 
+# Kill the ERSAP srun - this will terminate ERSAP containers on all nodes
+kill $ERSAP_SRUN_PID 2>/dev/null || true
+wait $ERSAP_SRUN_PID 2>/dev/null || true
+echo "ERSAP containers stopped"
+
+#=============================================================================
+# Summary
+#=============================================================================
 echo "========================================="
 echo "Test Summary"
 echo "========================================="
 echo "Job ID:        $SLURM_JOB_ID"
+echo "Nodes:         $SLURM_NNODES"
+echo "Total ranks:   $TOTAL_RANKS"
 echo "Job directory: $JOB_DIR"
 echo ""
-
 echo "Logs available at:"
-echo "  - SBatch logs:             $RUNS_DIR/slurm-<job id>.out/.err"
-echo "  - Container Launcher log:  $JOB_DIR/launcher.log"
-echo "  - ERSAP logs:              $JOB_DIR/ersap_<node>.log"
-echo "  - SAGIPS logs:             $JOB_DIR/sagips_<node>.log"
+echo "  - SBatch logs:          $RUNS_DIR/slurm-${SLURM_JOB_ID}.out/.err"
+echo "  - ERSAP logs:           $JOB_DIR/ersap_<node>.log"
+echo "  - SAGIPS combined log:  $JOB_DIR/sagips.log"
+echo "  - Per-node outputs:     $SCRIPT_DIR/outputs/<node>/"
 echo ""
-
-echo "========================================="
 echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "========================================="
 
-# Exit with sender's exit code (most important for test success)
-exit $CONTAINERS_EXIT_CODE
+exit $SAGIPS_EXIT
