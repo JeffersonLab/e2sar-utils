@@ -50,6 +50,7 @@ while true; do
     *) echo "Waiting: $state $nodes"; sleep 10;;
   esac
 done
+rm /tmp/.haidis_sq_<job_id>
 ENDSSH
 ```
 
@@ -74,10 +75,10 @@ Watch the logs for these two readiness signals:
 
 Once both signals are present for all nodes, **stop polling and tell the user:**
 
-> Both ERSAP and SAGIPS are ready and waiting for data. Please send data now using the following command (substitute the actual EJFAT URI):
+> Both ERSAP and SAGIPS are ready and waiting for data. Please send data now using the following command (substitute the actual EJFAT URI user provided earlier):
 >
 > ```bash
-> docker run --rm --network=host -v /nvme/haidis/toy_data:/nvme/haidis/toy_data ibaldin/e2sar-utils:0.1.2 e2sar-root -s -u '<substitute EJFAT URI>' --withcp --files /nvme/haidis/toy_data/dalitz_toy_data_0/dalitz_root_file_0.root --tree dalitz_root_tree --bufsize-mb 1 --mtu 9000
+> docker run --rm --network=host -v /nvme/haidis/toy_data:/nvme/haidis/toy_data ibaldin/e2sar-utils:0.1.2 e2sar-root -s -u '<EJFAT URI>' --withcp --files /nvme/haidis/toy_data/dalitz_toy_data_0/dalitz_root_file_0.root --tree dalitz_root_tree --bufsize-mb 1 --mtu 9000
 > ```
 
 Resume polling (Step 4) once the user confirms data is being sent.
@@ -92,7 +93,7 @@ ssh -q perlmutter.nersc.gov "cat /global/cfs/cdirs/amsc016/haidis/runs/slurm-<jo
 
 **Success:** Ranks 0 through N-1 all appear with `Training completed`, where N = nodes × 4.
 
-**Scan for errors:** `ERROR`, `Exception`, `Traceback`, `Segmentation fault`, `BIND MOUNT FAILED`, `lbadm` phase failures, ERSAP exit before completion, missing ranks.
+**Scan for errors:** `ERROR`, `Exception`, `Traceback`, `Segmentation fault`, `Unable`, `BIND MOUNT FAILED`, `lbadm` phase failures, ERSAP exit before completion, missing ranks.
 
 Note: `SIGNAL Killed` in stderr after a zero exit code is expected cleanup behavior, not a failure.
 
