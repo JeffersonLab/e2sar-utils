@@ -67,7 +67,9 @@ project_deps = [
 inc_dir = include_directories('include')
 
 # Subdirectories
+subdir('include')
 subdir('src')
+subdir('bin')
 subdir('tests')
 
 # Summary

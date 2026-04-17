@@ -1,6 +1,15 @@
 # e2sar-utils
 
-A C++ utility library for e2sar project.
+A C++ utility for reading particle physics ROOT files and streaming event data over the network via E2SAR segmentation. Can use simluated Dalitz or GlueX data and extract different types of physics events and send them on the wire. The receive end is for testing only - simply saves every EJFAT event (containing multiple physics events) into a file. 
+
+## Supported Event Schemas
+
+| Flag | Tree name | Event type | Doubles/event |
+|------|-----------|------------|---------------|
+| `--toy` | `dalitz_root_tree` | Dalitz toy-MC (π+π-γγ, spherical coords) | 16 |
+| `--gluex` | `myTree` | GlueX kinematic-fit (π+π-γγ + kfit scalars) | 19 |
+
+**Exactly one of `--toy` or `--gluex` is required** for any sender or read-only invocation.
 
 ## Dependencies
 
@@ -13,6 +22,8 @@ A C++ utility library for e2sar project.
 ### Runtime Dependencies
 - gRPC (>= 1.74.1)
 - Protocol Buffers
+- ROOT (particle physics library)
+- E2SAR (>= 0.1.5)
 
 ## Building
 
@@ -30,6 +41,49 @@ meson test -C build/
 meson install -C build/
 ```
 
+## Usage
+
+```
+Sender:   e2sar-root --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> [OPTIONS] <file1.root> ...
+Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
+```
+
+### Key Options
+
+| Option | Description |
+|--------|-------------|
+| `--toy` | Use Dalitz toy-MC schema |
+| `--gluex` | Use GlueX kinematic-fit schema |
+| `-t, --tree <name>` | ROOT tree name to read |
+| `-s, --send` | Enable E2SAR network sending |
+| `-r, --recv` | Enable E2SAR network receiving |
+| `-u, --uri <uri>` | EJFAT URI |
+| `--bufsize-mb N` | Batch size in MB (default: 10) |
+| `--mtu N` | MTU in bytes (default: 1500, max: 9000) |
+| `--recv-ip <ip>` | IP address for receiver |
+| `-o, --output-pattern` | Output filename pattern (default: `event_{:08d}.dat`) |
+
+### Examples
+
+```bash
+# Read-only (verify file, no network)
+./build/bin/e2sar-root --toy  --tree dalitz_root_tree file.root
+./build/bin/e2sar-root --gluex --tree myTree file.root
+
+# Send toy-MC data
+./build/bin/e2sar-root --toy -t dalitz_root_tree --send \
+  -u "ejfat://token@host:port/lb/1?data=ip:port" --bufsize-mb 5 file.root
+
+# Send GlueX data with jumbo frames
+./build/bin/e2sar-root --gluex -t myTree --send \
+  -u "ejfat://token@host:port/lb/1?data=ip:port" --mtu 9000 file.root
+
+# Receive events
+./build/bin/e2sar-root --recv \
+  -u "ejfat://token@host:port/lb/1?data=ip:port" \
+  --recv-ip 127.0.0.1 -o output_{:06d}.dat
+```
+
 ## Testing
 
 After making code changes, always run the loopback integration test:
@@ -44,7 +98,7 @@ After making code changes, always run the loopback integration test:
 
 The test script:
 1. Starts a receiver on the loopback interface
-2. Runs the sender with parallel file processing
+2. Runs the sender (`--toy` schema) with parallel file processing
 3. Verifies all buffers were received without errors
 4. Reports PASS/FAIL status
 
@@ -100,11 +154,18 @@ meson compile -C build/
 
 ```
 .
-├── include/       # Public headers
-├── src/          # Source files
-├── tests/        # Unit tests
-├── docs/         # Documentation
-└── build/        # Build directory (generated)
+├── include/                  # Public headers (installed under e2sar-utils/)
+│   ├── event_data.hpp        # EventData, DalitzEventData, GluexEventData
+│   └── file_processor.hpp   # CommandLineArgs, RootFileProcessor hierarchy
+├── src/                      # Library sources → libe2sar_utils
+│   ├── event_data.cpp        # appendToBuffer / fromBuffer / createLorentzVector
+│   └── file_processor.cpp   # RootFileProcessor::process() template method + hooks
+├── bin/                      # Executable entry point → e2sar-root
+│   └── e2sar_root.cpp        # Signal handling, segmenter/reassembler init, main()
+├── tests/                    # Integration tests and ROOT analysis macros
+│   └── README.md             # Per-file descriptions
+├── docs/                     # Documentation
+└── build/                    # Build directory (generated)
 ```
 
 ## License

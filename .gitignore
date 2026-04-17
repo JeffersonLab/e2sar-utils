@@ -64,3 +64,6 @@ docs/html/
 docs/latex/
 
 .cache
+# Ignore data 
+dalitz_toy_data_*
+gluex
