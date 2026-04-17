@@ -60,6 +60,7 @@ Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
 | `-u, --uri <uri>` | EJFAT URI |
 | `--bufsize-mb N` | Batch size in MB (default: 10) |
 | `--mtu N` | MTU in bytes (default: 1500, max: 9000) |
+| `--dataid N` | Data ID passed to E2SAR Segmenter (default: 0) |
 | `--recv-ip <ip>` | IP address for receiver |
 | `-o, --output-pattern` | Output filename pattern (default: `event_{:08d}.dat`) |
 

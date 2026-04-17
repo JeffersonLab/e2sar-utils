@@ -232,18 +232,21 @@ struct ReceiveStats {
     std::atomic<uint64_t> events_written{0};
     std::atomic<uint64_t> write_errors{0};
     std::atomic<uint64_t> total_bytes{0};
+    std::atomic<uint64_t> data_id_mismatches{0};
 
     void printProgress() const {
         std::cout << "  Events received: " << events_received
                   << " | Written: " << events_written
                   << " | Errors: " << write_errors
+                  << " | DataID mismatches: " << data_id_mismatches
                   << " | Total MB: " << (total_bytes / (1024.0 * 1024.0))
                   << std::endl;
     }
 };
 
 // Receive events and write to memory-mapped files
-bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pattern) {
+bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pattern,
+                   uint16_t expected_data_id) {
     std::cout << "\nStarting event reception..." << std::endl;
     std::cout << "Output pattern: " << output_pattern << std::endl;
     std::cout << "Press Ctrl+C to stop\n" << std::endl;
@@ -270,6 +273,17 @@ bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pa
         if (result.has_error()) continue;
         if (result.value() == -1) continue;
 
+        if (data_id != expected_data_id) {
+            stats.data_id_mismatches++;
+            std::lock_guard<std::mutex> lock(cout_mutex);
+            std::cerr << "Warning: received data_id=" << data_id
+                      << " expected=" << expected_data_id
+                      << " event_num=" << event_num << std::endl;
+            delete[] event_buffer;
+            event_buffer = nullptr;
+            continue;
+        }
+
         stats.events_received++;
         stats.total_bytes += event_size;
 
@@ -290,10 +304,11 @@ bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pa
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 
     std::cout << "\n========== Reception Complete ==========" << std::endl;
-    std::cout << "Events received: " << stats.events_received << std::endl;
-    std::cout << "Events written: "  << stats.events_written  << std::endl;
-    std::cout << "Write errors: "    << stats.write_errors    << std::endl;
-    std::cout << "Total data: "      << (stats.total_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
+    std::cout << "Events received: "       << stats.events_received    << std::endl;
+    std::cout << "Events written: "        << stats.events_written     << std::endl;
+    std::cout << "Write errors: "          << stats.write_errors       << std::endl;
+    std::cout << "DataID mismatches: "     << stats.data_id_mismatches << std::endl;
+    std::cout << "Total data: "            << (stats.total_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;
     std::cout << "Duration: "        << duration.count() << " ms" << std::endl;
 
     if (stats.events_received > 0) {
@@ -324,7 +339,7 @@ bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pa
     }
     std::cout << std::endl;
 
-    return stats.write_errors == 0;
+    return stats.write_errors == 0 && stats.data_id_mismatches == 0;
 }
 
 CommandLineArgs parseArgs(int argc, char* argv[]) {
@@ -341,8 +356,8 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
          "Enable E2SAR network receiving")
         ("uri,u", po::value<std::string>(&args.ejfat_uri),
          "EJFAT URI for E2SAR (required for --send or --recv)")
-        ("dataid", po::value<uint16_t>(&args.data_id)->default_value(1),
-         "Data ID for E2SAR (default: 1)")
+        ("dataid", po::value<uint16_t>(&args.data_id)->default_value(0),
+         "Data ID for E2SAR (default: 0)")
         ("eventsrcid", po::value<uint32_t>(&args.event_src_id)->default_value(1),
          "Event source ID for E2SAR (default: 1)")
         ("bufsize-mb", po::value<size_t>(&args.bufsize_mb)->default_value(10),
@@ -472,7 +487,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            bool success = receiveEvents(*reassembler, args.output_pattern);
+            bool success = receiveEvents(*reassembler, args.output_pattern, args.data_id);
 
             std::cout << "\nDeregistering worker..." << std::endl;
             auto deregres = reassembler->deregisterWorker();

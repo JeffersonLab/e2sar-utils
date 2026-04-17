@@ -17,6 +17,7 @@
 #   --bufsize N     Batch size in MB (default: 1)
 #   --mtu N         MTU size (default: 9000)
 #   --files N       Number of times to process the test file (default: 2)
+#   --dataid N      Data ID passed to E2SAR Segmenter (default: 0)
 #   --help          Show this help message
 #
 
@@ -27,11 +28,12 @@ TIMEOUT=30
 BUFSIZE_MB=1
 MTU=9000
 NUM_FILES=2
+DATAID=0
 SCHEMA=toy   # toy | gluex
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/build"
-EXECUTABLE="$BUILD_DIR/src/e2sar-root"
+EXECUTABLE="$BUILD_DIR/bin/e2sar-root"
 OUTPUT_DIR=$(mktemp -d)
 RECV_LOG="$OUTPUT_DIR/receiver.log"
 SEND_LOG="$OUTPUT_DIR/sender.log"
@@ -111,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             NUM_FILES="$2"
             shift 2
             ;;
+        --dataid)
+            DATAID="$2"
+            shift 2
+            ;;
         --help)
             usage
             ;;
@@ -159,6 +165,7 @@ echo "  Tree:        $TREE_NAME"
 echo "  Files:       $NUM_FILES"
 echo "  Batch size:  $BUFSIZE_MB MB"
 echo "  MTU:         $MTU"
+echo "  Data ID:     $DATAID"
 echo "  Timeout:     $TIMEOUT seconds"
 echo "  Output dir:  $OUTPUT_DIR"
 echo ""
@@ -170,6 +177,7 @@ cd "$OUTPUT_DIR"
 "$EXECUTABLE" -r \
     -u "$EJFAT_URI" \
     --recv-ip 127.0.0.1 \
+    --dataid "$DATAID" \
     -o "event_{:08d}.dat" \
     > "$RECV_LOG" 2>&1 &
 
@@ -195,6 +203,7 @@ cd "$PROJECT_ROOT"
     --tree "$TREE_NAME" \
     --bufsize-mb "$BUFSIZE_MB" \
     --mtu "$MTU" \
+    --dataid "$DATAID" \
     $FILE_ARGS \
     > "$SEND_LOG" 2>&1
 

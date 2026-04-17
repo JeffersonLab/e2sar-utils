@@ -16,7 +16,7 @@ struct CommandLineArgs {
     // E2SAR sending options
     bool send_data = false;
     std::string ejfat_uri;
-    uint16_t data_id = 4321;
+    uint16_t data_id = 0;
     uint32_t event_src_id = 1234;
     size_t bufsize_mb = 10;
     uint16_t mtu = 1500;
