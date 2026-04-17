@@ -11,10 +11,13 @@
 # Usage: ./tests/test_loopback.sh [options]
 #
 # Options:
+#   --toy           Use Dalitz toy-MC schema (default)
+#   --gluex         Use GlueX kinematic-fit schema
 #   --timeout N     Receiver timeout in seconds (default: 30)
 #   --bufsize N     Batch size in MB (default: 1)
 #   --mtu N         MTU size (default: 9000)
 #   --files N       Number of times to process the test file (default: 2)
+#   --dataid N      Data ID passed to E2SAR Segmenter (default: 0)
 #   --help          Show this help message
 #
 
@@ -25,12 +28,12 @@ TIMEOUT=30
 BUFSIZE_MB=1
 MTU=9000
 NUM_FILES=2
+DATAID=0
+SCHEMA=toy   # toy | gluex
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_ROOT/build"
-EXECUTABLE="$BUILD_DIR/src/e2sar-root"
-TEST_DATA="$PROJECT_ROOT/dalitz_toy_data_0/dalitz_root_file_0.root"
-TREE_NAME="dalitz_root_tree"
+EXECUTABLE="$BUILD_DIR/bin/e2sar-root"
 OUTPUT_DIR=$(mktemp -d)
 RECV_LOG="$OUTPUT_DIR/receiver.log"
 SEND_LOG="$OUTPUT_DIR/sender.log"
@@ -86,6 +89,14 @@ trap cleanup EXIT
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
+        --toy)
+            SCHEMA=toy
+            shift
+            ;;
+        --gluex)
+            SCHEMA=gluex
+            shift
+            ;;
         --timeout)
             TIMEOUT="$2"
             shift 2
@@ -102,6 +113,10 @@ while [[ $# -gt 0 ]]; do
             NUM_FILES="$2"
             shift 2
             ;;
+        --dataid)
+            DATAID="$2"
+            shift 2
+            ;;
         --help)
             usage
             ;;
@@ -111,6 +126,15 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+# Resolve schema-specific defaults
+if [[ "$SCHEMA" == "gluex" ]]; then
+    TEST_DATA="${TEST_DATA:-$PROJECT_ROOT/gluex/Reduced_PiPiGG_Tree_030735.root}"
+    TREE_NAME="${TREE_NAME:-myTree}"
+else
+    TEST_DATA="${TEST_DATA:-$PROJECT_ROOT/dalitz_toy_data_0/dalitz_root_file_0.root}"
+    TREE_NAME="${TREE_NAME:-dalitz_root_tree}"
+fi
 
 # Verify prerequisites
 log_info "Checking prerequisites..."
@@ -123,6 +147,7 @@ fi
 
 if [[ ! -f "$TEST_DATA" ]]; then
     log_error "Test data not found: $TEST_DATA"
+    log_error "Expected $SCHEMA data at that path"
     exit 1
 fi
 
@@ -133,11 +158,14 @@ for ((i=0; i<NUM_FILES; i++)); do
 done
 
 log_info "Test configuration:"
+echo "  Schema:      $SCHEMA"
 echo "  Executable:  $EXECUTABLE"
 echo "  Test data:   $TEST_DATA"
+echo "  Tree:        $TREE_NAME"
 echo "  Files:       $NUM_FILES"
 echo "  Batch size:  $BUFSIZE_MB MB"
 echo "  MTU:         $MTU"
+echo "  Data ID:     $DATAID"
 echo "  Timeout:     $TIMEOUT seconds"
 echo "  Output dir:  $OUTPUT_DIR"
 echo ""
@@ -149,6 +177,7 @@ cd "$OUTPUT_DIR"
 "$EXECUTABLE" -r \
     -u "$EJFAT_URI" \
     --recv-ip 127.0.0.1 \
+    --dataid "$DATAID" \
     -o "event_{:08d}.dat" \
     > "$RECV_LOG" 2>&1 &
 
@@ -169,11 +198,12 @@ fi
 log_info "Starting sender with $NUM_FILES file(s) in parallel..."
 cd "$PROJECT_ROOT"
 
-"$EXECUTABLE" -s \
+"$EXECUTABLE" "--$SCHEMA" -s \
     -u "$EJFAT_URI" \
     --tree "$TREE_NAME" \
     --bufsize-mb "$BUFSIZE_MB" \
     --mtu "$MTU" \
+    --dataid "$DATAID" \
     $FILE_ARGS \
     > "$SEND_LOG" 2>&1
 

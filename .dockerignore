@@ -13,6 +13,7 @@ Dockerfile*
 
 # Ignore data 
 dalitz_toy_data_*
+gluex
 
 .claude
 

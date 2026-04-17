@@ -8,8 +8,6 @@ e2sar-utils is a C++ utility library for the EJFAT (Experimental Data Flow Archi
 
 **Domain Context:** Particle physics data analysis, specifically Dalitz decay analysis with pions and photons (π+π-γγ events).
 
-**Current State:** Full streaming implementation with E2SAR network transmission, optimized for minimal memory usage and proper data alignment.
-
 ## Build System: Meson
 
 This project uses Meson (not CMake). All build configuration is in `meson.build` files.
@@ -23,14 +21,11 @@ meson setup --reconfigure build/
 # Compile
 meson compile -C build/
 
-# Run tests (when implemented)
+# Run tests
 meson test -C build/
 
 # View all build options
 meson configure build/
-
-# Change build options
-meson configure build/ -Denable_tests=false -Dbuildtype=release
 ```
 
 ### Build Options (meson.options)
@@ -52,356 +47,173 @@ meson configure build/ -Denable_tests=false -Dbuildtype=release
   - Installed location: `/Users/baldin/workspaces/workspace-ejfat/e2sar-install`
   - Project links against libe2sar.a
   - Requires: Boost.URL, Boost.Log, Boost.Thread, Boost.Chrono
-  - Test executable: `tests/test_e2sar.cpp` verifies proper E2SAR installation and linking
 
 ### Dependency Discovery Strategy
 
 **ROOT dependency** uses a two-tier approach in `meson.build`:
 1. First tries pkg-config: `dependency('ROOT', method: 'pkg-config', components: ['Core', 'RIO', 'Tree'])`
 2. Falls back to root-config if pkg-config fails
-3. This pattern ensures compatibility across different ROOT installations
 
-**E2SAR dependency** uses explicit path configuration:
-```python
-e2sar_install_root = '/Users/baldin/workspaces/workspace-ejfat/e2sar-install'
-e2sar_dep = declare_dependency(
-  include_directories: include_directories(e2sar_install_root / 'include'),
-  dependencies: [boost_url_dep, boost_log_dep, boost_thread_dep, boost_chrono_dep],
-  link_args: ['-L' + e2sar_install_root / 'lib', '-le2sar'],
-  version: '0.1.5'
-)
+**E2SAR dependency** is found via pkg-config using the `.pc` file in the install directory.
+
+## Code Organization
+
+```
+include/
+  event_data.hpp       # EventData abstract base; DalitzEventData, GluexEventData subclasses
+  file_processor.hpp   # CommandLineArgs struct; RootFileProcessor, ToyFileProcessor,
+                       #   GluexFileProcessor class hierarchy
+  meson.build          # install_headers() for both headers
+
+src/
+  event_data.cpp       # appendToBuffer(), fromBuffer(), createLorentzVector()
+  file_processor.cpp   # global_buffer_id, cout_mutex; RootFileProcessor::process()
+                       #   template method; ToyFileProcessor and GluexFileProcessor hooks
+  meson.build          # builds libe2sar_utils (shared library)
+
+bin/
+  e2sar_root.cpp       # Signal handling, initializeSegmenter(), initializeReassembler(),
+                       #   receiveEvents(), parseArgs(), main()
+  meson.build          # builds e2sar-root executable, links against libe2sar_utils
+
+tests/
+  test_loopback.sh     # End-to-end integration test (sender + receiver over loopback)
+  test_e2sar.cpp       # E2SAR library smoke test
+  factored_gluex_analysis.C  # Reference implementation (basis for GluexFileProcessor)
+  gluex_event_selection.C    # GlueX event selection with kinematic-fit cuts
+  compare_histos.C     # Histogram comparison ROOT macro
+  read_dalitz_root.py  # Python reference for Dalitz toy-MC ROOT files
+  README.md            # Per-file descriptions
 ```
 
 ## Architecture
 
-### Current Implementation: Streaming ROOT → E2SAR Pipeline
+### Class Hierarchies
 
-**Executable:** `root-reader` (src/root_reader.cpp)
+#### EventData (`include/event_data.hpp`, `src/event_data.cpp`)
 
-Full-featured streaming tool that:
-1. Reads ROOT files with particle physics events
-2. Processes events in configurable batches (streaming architecture)
-3. Serializes events to binary format with proper alignment
-4. Transmits via E2SAR segmentation to network destinations
+Abstract base `EventData`:
+- `virtual void appendToBuffer(std::vector<double>& buf) const = 0`
+- `virtual size_t numDoubles() const = 0`
+- `size_t size() const` — non-virtual, returns `numDoubles() * sizeof(double)`
 
-### Key Features
+Subclasses:
+- **`DalitzEventData`** — 16 doubles (4 particles × 4-vector). Fields: `pi_plus`, `pi_minus`, `gamma1`, `gamma2`. Reads spherical-coordinate branches. Static `fromBuffer(const double*)`.
+- **`GluexEventData`** — 19 doubles (16 four-vector + 3 kfit scalars). Fields: `pip`, `pim`, `g1`, `g2`, `imass_kfit`, `imassGG_kfit`, `kfit_prob`. Reads `TLorentzVector*` branches. Static `fromBuffer(const double*)`.
 
-#### 1. Streaming Architecture (Memory Optimized)
+#### RootFileProcessor (`include/file_processor.hpp`, `src/file_processor.cpp`)
 
-**Problem Solved:** Original approach would buffer all 2.5M events (320 MB) before sending.
+Abstract base `RootFileProcessor` (Template Method pattern):
+- `process(file_path, tree_name)` — owns the algorithm: file open, batch allocation, E2SAR send/retry loop, statistics. Not overridden.
+- Pure-virtual hooks implemented by subclasses: `bindBranches(TTree*)`, `appendEntry(vector<double>&)`, `printSample() const`, `eventSize() const`
 
-**Solution:** Stream events in configurable batches:
-- Read batch (N MB) → Serialize → Send → Repeat
-- Default batch size: 10 MB (~81,920 events)
-- Memory usage: ~20-30 MB (15x reduction from 320 MB)
+Subclasses:
+- **`ToyFileProcessor`** — dalitz_root_tree schema, spherical-coord branches (mag/theta/phi), produces `DalitzEventData`
+- **`GluexFileProcessor`** — myTree schema, `TLorentzVector*` branches + kfit scalars, produces `GluexEventData`
 
-**Memory Alignment Optimization:**
-- Uses `std::vector<double>` for batch storage (ensures 8-byte alignment)
-- Each event = 16 doubles (4 particles × 4-vector each = 128 bytes)
-- Events appended directly via `push_back()` (no intermediate copying)
-- Buffer passed to E2SAR via `data()` method (zero-copy)
+### Supported Event Schemas
 
-#### 2. E2SAR Integration
+| CLI flag | Tree name | Event type | Doubles/event | Bytes/event |
+|----------|-----------|------------|---------------|-------------|
+| `--toy` | `dalitz_root_tree` | Dalitz toy-MC (π+π-γγ, spherical coords) | 16 | 128 |
+| `--gluex` | `myTree` | GlueX kinematic-fit (π+π-γγ + kfit scalars) | 19 | 152 |
 
-- Configurable MTU (default: 1500 bytes, supports jumbo frames up to 9000)
-- Automatic segmentation into network frames
-- Retry logic for queue-full conditions
-- Completion tracking and statistics
+`--toy` and `--gluex` are mutually exclusive; exactly one is required for sender/read-only mode. `--recv` mode is exempt.
 
-#### 3. Command-Line Interface
+### Streaming Architecture
 
-```bash
-./root-reader --tree <tree_name> [OPTIONS] <file.root>
+Events are processed in configurable batches to bound memory usage:
+- Read N MB of events → serialize to `std::vector<double>` → pass to E2SAR → repeat
+- Default batch size: 10 MB
+- Memory usage: ~20-30 MB regardless of file size
 
-Required:
-  -t, --tree <name>       Tree name to process (e.g., dalitz_root_tree)
-  <file.root>             ROOT file path(s)
+### Wire Serialization Format
 
-E2SAR Sending:
-  -s, --send              Enable network sending
-  -u, --uri <ejfat_uri>   EJFAT URI (format: ejfat://token@host:port/lb/N?data=ip:port)
-  --dataid <N>            Data ID for E2SAR (default: 1)
-  --eventsrcid <N>        Event source ID (default: 1)
-  --bufsize-mb <N>        Batch size in MB (default: 10)
-  --mtu <N>               MTU in bytes (default: 1500, range: 576-9000)
+Each event is a flat array of doubles in (E, px, py, pz) order per particle:
+```
+DalitzEventData: [pip4v][pim4v][g14v][g24v]                           = 16 doubles
+GluexEventData:  [pip4v][pim4v][g14v][g24v][imass_kfit][imassGG][prob] = 19 doubles
 ```
 
-### Data Structures
-
-#### DalitzEvent (lines 30-35)
-```cpp
-struct DalitzEvent {
-    TLorentzVector pi_plus;    // π+ (positive pion)
-    TLorentzVector pi_minus;   // π- (negative pion)
-    TLorentzVector gamma1;     // γ1 (first photon)
-    TLorentzVector gamma2;     // γ2 (second photon)
-};
-// Serialized size: 128 bytes (16 doubles × 8 bytes)
-```
-
-#### StreamingStats (lines 38-58)
-Tracks progress during streaming:
-- Total events processed
-- Batches sent
-- E2SAR buffers sent
-- Total bytes transmitted
-
-### Processing Pipeline
+### Command-Line Interface
 
 ```
-ROOT File (TFile)
-  ↓
-Tree (TTree) - 2.5M entries
-  ↓
-Read event branches (mag, theta, phi for each particle)
-  ↓
-Create TLorentzVector for each particle (4 particles)
-  ↓
-Append 16 doubles to batch vector (aligned memory)
-  ↓
-When batch full (81,920 events):
-  ↓
-  Pass vector.data() to E2SAR Segmenter
-    ↓
-    Segment into MTU-sized frames
-      ↓
-      Transmit over UDP to load balancer
-        ↓
-        Delete batch vector (callback)
-  ↓
-Allocate new batch, continue
+Sender:   e2sar-root --toy|--gluex --tree <name> --send --uri <ejfat_uri> [OPTIONS] <file.root> ...
+Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
+Read-only: e2sar-root --toy|--gluex --tree <name> <file.root> ...
 ```
 
-### Code Organization
-
-```
-src/
-  root_reader.cpp          # Main executable (561 lines)
-    - CommandLineArgs      # CLI configuration struct
-    - DalitzEvent          # Event data structure
-    - StreamingStats       # Progress tracking
-    - createLorentzVector  # Spherical → Cartesian conversion
-    - appendEventToVector  # Serialize event to vector<double>
-    - freeBuffer           # Callback to delete sent batches
-    - initializeSegmenter  # E2SAR setup and initialization
-    - parseArgs            # Boost::program_options CLI parsing
-    - processRootFile      # Main streaming loop
-  meson.build             # Executable build config
-
-include/                  # Public headers (future library APIs)
-
-tests/
-  test_e2sar.cpp         # E2SAR integration verification
-  read_dalitz_root.py    # Python reference implementation
-  meson.build            # Test framework setup
-```
-
-## ROOT File Processing
-
-### Tree Structure
-ROOT files contain `TTree` objects with event data:
-- Tree name: `dalitz_root_tree` (parameterized via --tree flag)
-- Branches per event:
-  - `mag_plus_rec`, `theta_plus_rec`, `phi_plus_rec` (π+)
-  - `mag_neg_rec`, `theta_neg_rec`, `phi_neg_rec` (π-)
-  - `mag_neutral1_rec`, `theta_neutral1_rec`, `phi_neutral1_rec` (γ1)
-  - `mag_neutral2_rec`, `theta_neutral2_rec`, `phi_neutral2_rec` (γ2)
-- Particle masses: π± = 0.139 GeV/c², γ = 0.0 GeV/c²
-
-### Binary Serialization Format
-
-Each event serialized as 16 doubles (128 bytes):
-```
-[ π+ (E, px, py, pz) ][ π- (E, px, py, pz) ][ γ1 (E, px, py, pz) ][ γ2 (E, px, py, pz) ]
-  4 doubles              4 doubles              4 doubles              4 doubles
-```
+Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max 9000), `--rate` (Gbps), `--withcp` (control plane), `--files` (parallel streams).
 
 ## Testing
 
 ### Test Data
-Location: `dalitz_toy_data_0/dalitz_root_file_0.root`
-- Size: 543 MB
-- Events: 2,572,650 entries
-- Tree: `dalitz_root_tree`
+- **Toy MC:** `dalitz_toy_data_0/dalitz_root_file_0.root` — 543 MB, 2,572,650 events, tree `dalitz_root_tree`
+- **GlueX:** `gluex/Reduced_PiPiGG_Tree_030735.root` — tree `myTree`
 
 ### Common Test Commands
 
 ```bash
-# Read and process without sending (verify processing)
-./build/src/root-reader --tree dalitz_root_tree ./dalitz_toy_data_0/dalitz_root_file_0.root
-
-# Stream via E2SAR with default settings (10 MB batches, MTU 1500)
-./build/src/root-reader -t dalitz_root_tree --send \
-  -u "ejfat://token@localhost:12345/lb/1?data=127.0.0.1:19522" \
-  ./dalitz_toy_data_0/dalitz_root_file_0.root
-
-# Small batches (1 MB) for testing
-./build/src/root-reader -t dalitz_root_tree --send \
-  -u "ejfat://token@localhost:12345/lb/1?data=127.0.0.1:19522" \
-  --bufsize-mb 1 \
-  ./dalitz_toy_data_0/dalitz_root_file_0.root
-
-# Jumbo frames (9000 MTU) with larger batches (20 MB)
-./build/src/root-reader -t dalitz_root_tree --send \
-  -u "ejfat://token@localhost:12345/lb/1?data=127.0.0.1:19522" \
-  --bufsize-mb 20 --mtu 9000 \
-  ./dalitz_toy_data_0/dalitz_root_file_0.root
-
-# Test help
-./build/src/root-reader --help
-
-# Test error handling
-./build/src/root-reader --tree nonexistent_tree ./dalitz_toy_data_0/dalitz_root_file_0.root
-```
-
-### E2SAR Integration Test
-
-```bash
-# Verify E2SAR library linking and basic functionality
+# E2SAR smoke test
 ./build/tests/test-e2sar
 
-# Expected output:
-# - E2SAR headers included successfully
-# - EjfatURI created and parsed
-# - E2SAR integration successful
+# Read-only (verify processing, no network)
+./build/bin/e2sar-root --toy  --tree dalitz_root_tree dalitz_toy_data_0/dalitz_root_file_0.root
+./build/bin/e2sar-root --gluex --tree myTree gluex/Reduced_PiPiGG_Tree_030735.root
+
+# Loopback integration test (REQUIRED after code changes to bin/ or src/)
+./tests/test_loopback.sh --toy
+./tests/test_loopback.sh --gluex
+
+# With custom options
+./tests/test_loopback.sh --toy --timeout 60 --bufsize 2 --files 3
 ```
 
-### Loopback Integration Test (REQUIRED after code changes)
+### Loopback Test Options
 
-**Always run this test after modifying e2sar_root.cpp:**
-
-```bash
-# Run the full loopback test (sender + receiver)
-./tests/test_loopback.sh
-
-# With custom options for more thorough testing
-./tests/test_loopback.sh --timeout 60 --bufsize 2 --files 3
-```
-
-The test:
-1. Starts receiver on loopback interface (127.0.0.1)
-2. Runs sender with parallel file processing (2 files by default)
-3. Verifies all buffers sent == files received
-4. Reports PASS/FAIL
-
-**Options:**
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--toy` / `--gluex` | `--toy` | Event schema and data file selection |
 | `--timeout N` | 30 | Receiver wait time in seconds |
 | `--bufsize N` | 1 | Batch size in MB |
 | `--mtu N` | 9000 | MTU size (jumbo frames) |
 | `--files N` | 2 | Number of parallel file streams |
 
-**Expected output on success:**
-```
-[INFO] ========== Test Results ==========
-  Buffers sent:     630
-  Files received:   630
-  Send errors:      0
+## Adding New Event Types
 
-[INFO] TEST PASSED - All buffers received successfully
-```
+1. Add a new subclass of `EventData` in `include/event_data.hpp` and `src/event_data.cpp` with `appendToBuffer()`, `fromBuffer()`, and `numDoubles()`.
+2. Add a new subclass of `RootFileProcessor` in `include/file_processor.hpp` and `src/file_processor.cpp` implementing `bindBranches()`, `appendEntry()`, `printSample()`, and `eventSize()`.
+3. Add a mutually exclusive `--newschema` CLI flag in `bin/e2sar_root.cpp` and a `make_unique<NewSchemaFileProcessor>` branch in `main()`.
+4. Update `tests/test_loopback.sh` to handle the new `--newschema` option.
 
 ## Performance Characteristics
 
 ### Memory Usage
-- **Before streaming refactor:** 320 MB (all events buffered)
-- **After streaming (10 MB batches):** ~20-30 MB (15x reduction)
-- **With 1 MB batches:** ~5-10 MB
-- **With 20 MB batches:** ~30-40 MB
+- 10 MB batches (default): ~20-30 MB total
+- 1 MB batches: ~5-10 MB
+- Memory is independent of file size due to streaming architecture
 
 ### Batch Size Calculations
 ```
-Batch size in events = (bufsize_mb × 1024 × 1024) / 128
-Default (10 MB) = 81,920 events
-
-Examples:
-- 1 MB  = 8,192 events
-- 10 MB = 81,920 events (default)
-- 20 MB = 163,840 events
+Toy (128 bytes/event):  1 MB = 8,192 events;  10 MB = 81,920 events
+GlueX (152 bytes/event): 1 MB = 6,898 events; 10 MB = 68,985 events
 ```
 
 ### E2SAR Buffer Packing
 ```
-MTU = 1500 (default)
-Max payload ≈ 1472 bytes (from segmenter.getMaxPldLen())
-Events per network frame ≈ 11 events
-
-For jumbo frames (MTU 9000):
-Max payload ≈ 8972 bytes
-Events per network frame ≈ 70 events
+MTU 1500:  max payload ≈ 1472 bytes → ~11 toy events/frame
+MTU 9000:  max payload ≈ 8972 bytes → ~70 toy events/frame
 ```
-
-## Key Implementation Details
-
-### Memory Alignment
-- Batch storage uses `std::vector<double>` for 8-byte alignment
-- Critical for CPU cache efficiency
-- Avoids alignment issues when casting to byte buffers
-
-### Zero-Copy Pattern
-- Events appended directly to vector via `appendEventToVector()`
-- No intermediate malloc/free cycles
-- Buffer pointer obtained via `batch->data()`
-- Passed directly to E2SAR with callback for cleanup
-
-### Dynamic Allocation Strategy
-- Each batch allocated with `new std::vector<double>()`
-- Reserved capacity: `BATCH_SIZE_EVENTS × 16` doubles
-- Deleted in callback after E2SAR transmission complete
-- Prevents accumulation of batches in memory
-
-### Error Handling
-- Queue full: Retry with exponential backoff (max 10,000 retries)
-- Send errors: Cleanup and return failure
-- Invalid URI: Error reported during segmenter initialization
-- File/tree not found: Clear error messages
-
-## Adding New Features
-
-### Adding Boost Modules
-```python
-# In meson.build
-boost_new_dep = dependency('boost', modules: ['new_module'])
-
-# Add to project_deps or specific dependency list
-```
-
-### Adding ROOT Components
-```python
-# In meson.build (lines 26-41)
-# Update components list in pkg-config dependency
-root_dep = dependency('ROOT',
-                      method: 'pkg-config',
-                      components: ['Core', 'RIO', 'Tree', 'NewComponent'])
-```
-
-### Modifying Event Structure
-If changing DalitzEvent:
-1. Update struct definition (lines 30-35)
-2. Update `appendEventToVector()` to append correct number of doubles
-3. Update `EVENT_SIZE` constant if total size changes
-4. Update serialization in `serializeEvent()` if backward compatibility needed
 
 ## Project Context: EJFAT/e2sar
 
-This utility is part of the EJFAT (Experimental Data Flow Architecture Test) project ecosystem for streaming particle physics event data over networks.
+This utility is part of the EJFAT (Experimental Data Flow Architecture Test) project ecosystem for streaming particle physics event data over high-speed networks.
 
-**Current Data Flow:**
+**Data flow:**
 ```
-ROOT files → Event extraction → TLorentzVector creation →
-Binary serialization → Batch buffering → E2SAR segmentation →
-UDP transmission → Load balancer → Data plane endpoints
+ROOT files → RootFileProcessor (branch reading + serialization)
+           → std::vector<double> batches
+           → E2SAR Segmenter (MTU-sized UDP frames)
+           → Load balancer → Data plane endpoints
+           → E2SAR Reassembler → event files on disk
 ```
-
-**E2SAR Role:**
-- Segments large data buffers into MTU-sized network frames
-- Adds frame headers for reassembly
-- Manages send queues and transmission threads
-- Provides statistics on transmitted frames
-
-**Future Enhancements:**
-- Physics analysis (invariant masses, kinematic checks)
-- Multiple file processing patterns
-- Compression options
-- Receiver/reassembly utilities
