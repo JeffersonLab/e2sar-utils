@@ -25,10 +25,9 @@ struct StreamingStats {
     }
 
     void printProgress(std::ostringstream& o) const {
-        o << "  Batches: " << total_batches_sent
-          << " | Events: " << total_events_processed
-          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0))
-          << std::endl;
+        o << "  EJFAT Events: " << total_batches_sent
+          << " | Physics Events: " << total_events_processed
+          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0));
     }
 };
 
@@ -163,11 +162,11 @@ bool RootFileProcessor::process(const std::string& file_path,
         thread_print(file_index_, oss);
     }
 
-    if (nEntries > 0) {
-        std::ostringstream oss;
-        printSample(oss);
-        thread_print(file_index_, oss);
-    }
+    //if (nEntries > 0) {
+    //    std::ostringstream oss;
+    //    printSample(oss);
+    //    thread_print(file_index_, oss);
+    //}
 
     if (args_.send_data && segmenter_) {
         std::ostringstream oss;
@@ -213,7 +212,7 @@ void ToyFileProcessor::printSample(std::ostringstream &o) const {
     o << "[File " << file_index_ << "]   γ1 : E=" << first_.gamma1.E()
               << " GeV, p=(" << first_.gamma1.Px()   << ", " << first_.gamma1.Py()   << ", " << first_.gamma1.Pz()   << ") GeV/c" << std::endl;
     o << "[File " << file_index_ << "]   γ2 : E=" << first_.gamma2.E()
-              << " GeV, p=(" << first_.gamma2.Px()   << ", " << first_.gamma2.Py()   << ", " << first_.gamma2.Pz()   << ") GeV/c" << std::endl;
+              << " GeV, p=(" << first_.gamma2.Px()   << ", " << first_.gamma2.Py()   << ", " << first_.gamma2.Pz()   << ") GeV/c";
 }
 
 // ── GluexFileProcessor ───────────────────────────────────────────────────────
@@ -252,5 +251,5 @@ void GluexFileProcessor::printSample(std::ostringstream &oss) const {
               << " GeV, p=(" << first_.g2.Px()  << ", " << first_.g2.Py()  << ", " << first_.g2.Pz()  << ") GeV/c" << std::endl;
     oss << "[File " << file_index_ << "]   imass_kfit=" << first_.imass_kfit
               << "  imassGG_kfit=" << first_.imassGG_kfit
-              << "  kfit_prob="    << first_.kfit_prob << std::endl;
+              << "  kfit_prob="    << first_.kfit_prob;
 }
