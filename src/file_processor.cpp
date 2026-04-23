@@ -16,22 +16,19 @@ namespace {
 struct StreamingStats {
     size_t total_events_processed = 0;
     size_t total_batches_sent     = 0;
-    size_t total_buffers_sent     = 0;
     size_t total_bytes_sent       = 0;
 
-    void addBatch(size_t events, size_t buffers, size_t bytes) {
+    void addBatch(size_t events, size_t bytes) {
         total_events_processed += events;
         total_batches_sent++;
-        total_buffers_sent += buffers;
         total_bytes_sent   += bytes;
     }
 
-    void printProgress() const {
-        std::cout << "  Batches: " << total_batches_sent
-                  << " | Events: " << total_events_processed
-                  << " | Buffers: " << total_buffers_sent
-                  << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0))
-                  << std::endl;
+    void printProgress(std::ostringstream& o) const {
+        o << "  Batches: " << total_batches_sent
+          << " | Events: " << total_events_processed
+          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0))
+          << std::endl;
     }
 };
 
@@ -133,19 +130,20 @@ bool RootFileProcessor::process(const std::string& file_path,
                 }
 
                 if (!sent) {
-                    std::lock_guard<std::mutex> lock(cout_mutex);
-                    std::cerr << "[File " << file_index_ << "] Failed to send buffer after "
-                              << MAX_RETRIES << " retries" << std::endl;
+                    std::ostringstream oss;
+                    oss << "[File " << file_index_ << "] Failed to send buffer after "
+                            << MAX_RETRIES << " retries" << std::endl;
+                    thread_print(file_index_, oss);
                     delete batch;
                     return false;
                 }
 
-                stats.addBatch(events_in_batch, 1, buffer_size);
+                stats.addBatch(events_in_batch, buffer_size);
 
                 if (stats.total_batches_sent % 10 == 0) {
-                    std::lock_guard<std::mutex> lock(cout_mutex);
-                    std::cout << "[File " << file_index_ << "] ";
-                    stats.printProgress();
+                    std::ostringstream oss;
+                    stats.printProgress(oss);
+                    thread_print(file_index_, oss);
                 }
             } else if (!args_.send_data) {
                 delete batch;
@@ -157,12 +155,6 @@ bool RootFileProcessor::process(const std::string& file_path,
                 events_in_batch = 0;
             }
         }
-
-        if ((i + 1) % 500000 == 0) {
-            std::ostringstream oss;
-            oss << "Read " << (i + 1) << " / " << nEntries << " events";
-            thread_print(file_index_, oss);
-        }
     }
 
     {
@@ -172,17 +164,15 @@ bool RootFileProcessor::process(const std::string& file_path,
     }
 
     if (nEntries > 0) {
-        std::lock_guard<std::mutex> lock(cout_mutex);
-        std::cout << "[File " << file_index_ << "] Sample (first event):" << std::endl;
-        printSample();
+        std::ostringstream oss;
+        printSample(oss);
+        thread_print(file_index_, oss);
     }
 
     if (args_.send_data && segmenter_) {
-        std::lock_guard<std::mutex> lock(cout_mutex);
-        std::cout << "[File " << file_index_ << "] ========== File Processing Complete ==========" << std::endl;
-        std::cout << "[File " << file_index_ << "] Events processed: " << stats.total_events_processed << std::endl;
-        std::cout << "[File " << file_index_ << "] Batches sent: "     << stats.total_batches_sent      << std::endl;
-        std::cout << "[File " << file_index_ << "] Data volume: "      << (stats.total_bytes_sent / (1024.0 * 1024.0)) << " MB" << std::endl;
+        std::ostringstream oss;
+        stats.printProgress(oss);
+        thread_print(file_index_, oss);
     }
 
     return true;
@@ -215,14 +205,14 @@ void ToyFileProcessor::appendEntry(std::vector<double>& batch) {
     event.appendToBuffer(batch);
 }
 
-void ToyFileProcessor::printSample() const {
-    std::cout << "[File " << file_index_ << "]   π+ : E=" << first_.pi_plus.E()
+void ToyFileProcessor::printSample(std::ostringstream &o) const {
+    o << "[File " << file_index_ << "]   π+ : E=" << first_.pi_plus.E()
               << " GeV, p=(" << first_.pi_plus.Px()  << ", " << first_.pi_plus.Py()  << ", " << first_.pi_plus.Pz()  << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   π- : E=" << first_.pi_minus.E()
+    o << "[File " << file_index_ << "]   π- : E=" << first_.pi_minus.E()
               << " GeV, p=(" << first_.pi_minus.Px() << ", " << first_.pi_minus.Py() << ", " << first_.pi_minus.Pz() << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   γ1 : E=" << first_.gamma1.E()
+    o << "[File " << file_index_ << "]   γ1 : E=" << first_.gamma1.E()
               << " GeV, p=(" << first_.gamma1.Px()   << ", " << first_.gamma1.Py()   << ", " << first_.gamma1.Pz()   << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   γ2 : E=" << first_.gamma2.E()
+    o << "[File " << file_index_ << "]   γ2 : E=" << first_.gamma2.E()
               << " GeV, p=(" << first_.gamma2.Px()   << ", " << first_.gamma2.Py()   << ", " << first_.gamma2.Pz()   << ") GeV/c" << std::endl;
 }
 
@@ -251,16 +241,16 @@ void GluexFileProcessor::appendEntry(std::vector<double>& batch) {
     event.appendToBuffer(batch);
 }
 
-void GluexFileProcessor::printSample() const {
-    std::cout << "[File " << file_index_ << "]   π+ : E=" << first_.pip.E()
+void GluexFileProcessor::printSample(std::ostringstream &oss) const {
+    oss << "[File " << file_index_ << "]   π+ : E=" << first_.pip.E()
               << " GeV, p=(" << first_.pip.Px() << ", " << first_.pip.Py() << ", " << first_.pip.Pz() << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   π- : E=" << first_.pim.E()
+    oss << "[File " << file_index_ << "]   π- : E=" << first_.pim.E()
               << " GeV, p=(" << first_.pim.Px() << ", " << first_.pim.Py() << ", " << first_.pim.Pz() << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   γ1 : E=" << first_.g1.E()
+    oss << "[File " << file_index_ << "]   γ1 : E=" << first_.g1.E()
               << " GeV, p=(" << first_.g1.Px()  << ", " << first_.g1.Py()  << ", " << first_.g1.Pz()  << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   γ2 : E=" << first_.g2.E()
+    oss << "[File " << file_index_ << "]   γ2 : E=" << first_.g2.E()
               << " GeV, p=(" << first_.g2.Px()  << ", " << first_.g2.Py()  << ", " << first_.g2.Pz()  << ") GeV/c" << std::endl;
-    std::cout << "[File " << file_index_ << "]   imass_kfit=" << first_.imass_kfit
+    oss << "[File " << file_index_ << "]   imass_kfit=" << first_.imass_kfit
               << "  imassGG_kfit=" << first_.imassGG_kfit
               << "  kfit_prob="    << first_.kfit_prob << std::endl;
 }
