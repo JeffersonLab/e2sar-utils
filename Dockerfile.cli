@@ -150,6 +150,7 @@ FROM base-runtime AS deploy
 
 WORKDIR ${E2SARINSTALL}
 ENV PATH=${E2SARINSTALL}/bin:$PATH
+ENV LD_LIBRARY_PATH=${E2SARINSTALL}/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
 
 # ROOT's cling interpreter needs C++ standard library headers at runtime
 # Install them here (not in base-runtime to avoid conflicts with base-build)
