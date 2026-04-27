@@ -328,8 +328,15 @@ bool receiveEvents(e2sar::Reassembler& reassembler, ETSystem& et) {
         stats.events_received++;
         stats.total_bytes += event_size;
 
-        // Write to ET system
-        if (writeToET(et, event_buffer, event_size)) {
+        // Build augmented buffer: original payload followed by data_id stored as double
+        size_t augmented_size = event_size + sizeof(double);
+        std::vector<uint8_t> augmented_buffer(augmented_size);
+        std::memcpy(augmented_buffer.data(), event_buffer, event_size);
+        double data_id_as_double = static_cast<double>(data_id);
+        std::memcpy(augmented_buffer.data() + event_size, &data_id_as_double, sizeof(double));
+
+        // Write augmented buffer to ET system
+        if (writeToET(et, augmented_buffer.data(), augmented_size)) {
             stats.events_written++;
         } else {
             stats.write_errors++;
