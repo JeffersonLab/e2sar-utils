@@ -25,7 +25,7 @@ ENV LD_LIBRARY_PATH=/usr/local/lib
 ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
 ENV PATH=/usr/local/bin:$PATH
 ENV E2SARINSTALL=/e2sar-install
-ENV E2SAR_VER=0.3.0a1
+ENV E2SAR_VER=0.3.1
 ENV E2SAR_DEB=E2SAR-${E2SAR_VER}-main-ubuntu-24.04/e2sar_${E2SAR_VER}_amd64.deb
 ENV E2SAR_DEB_URL=https://github.com/JeffersonLab/E2SAR/releases/download/${E2SAR_DEB}
 ENV ROOT_INSTALL=/rootlib
@@ -150,6 +150,7 @@ FROM base-runtime AS deploy
 
 WORKDIR ${E2SARINSTALL}
 ENV PATH=${E2SARINSTALL}/bin:$PATH
+ENV LD_LIBRARY_PATH=${E2SARINSTALL}/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
 
 # ROOT's cling interpreter needs C++ standard library headers at runtime
 # Install them here (not in base-runtime to avoid conflicts with base-build)
@@ -171,6 +172,8 @@ CMD ["e2sar-root"]
 # Build with: docker build --target deploy-debug -t e2sar-utils:debug -f Dockerfile.opt .
 #
 FROM deploy AS deploy-debug
+
+ENV LD_LIBRARY_PATH=${E2SARINSTALL}/lib/x86_64-linux-gnu/:$LD_LIBRARY_PATH
 
 RUN apt-get -yq update && \
     apt-get -yq install --no-install-recommends \

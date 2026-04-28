@@ -304,8 +304,8 @@ bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pa
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 
     std::cout << "\n========== Reception Complete ==========" << std::endl;
-    std::cout << "Events received: "       << stats.events_received    << std::endl;
-    std::cout << "Events written: "        << stats.events_written     << std::endl;
+    std::cout << "EJFAT Events received: "       << stats.events_received    << std::endl;
+    std::cout << "EJFAT Events written: "        << stats.events_written     << std::endl;
     std::cout << "Write errors: "          << stats.write_errors       << std::endl;
     std::cout << "DataID mismatches: "     << stats.data_id_mismatches << std::endl;
     std::cout << "Total data: "            << (stats.total_bytes / (1024.0 * 1024.0)) << " MB" << std::endl;

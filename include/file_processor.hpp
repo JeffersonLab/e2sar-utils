@@ -61,7 +61,7 @@ protected:
     // and append it to batch. Save state for printSample() on the first call.
     virtual void appendEntry(std::vector<double>& batch) = 0;
     // Print the first-event summary to stdout (cout_mutex already held by caller).
-    virtual void printSample() const = 0;
+    virtual void printSample(std::ostringstream &o) const = 0;
     // Serialized byte size of one event; used to compute batch capacity.
     virtual size_t eventSize() const = 0;
 
@@ -79,7 +79,7 @@ public:
 protected:
     void bindBranches(TTree* tree) override;
     void appendEntry(std::vector<double>& batch) override;
-    void printSample() const override;
+    void printSample(std::ostringstream &o) const override;
     size_t eventSize() const override { return DalitzEventData{}.size(); }
 
 private:
@@ -105,7 +105,7 @@ public:
 protected:
     void bindBranches(TTree* tree) override;
     void appendEntry(std::vector<double>& batch) override;
-    void printSample() const override;
+    void printSample(std::ostringstream &o) const override;
     size_t eventSize() const override { return GluexEventData{}.size(); }
 
 private:
