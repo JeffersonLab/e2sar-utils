@@ -30,6 +30,7 @@ struct CommandLineArgs {
     bool withCP;
     float rateGbps;
     bool validate;
+    uint32_t num_send_sockets = 4;
     // Event schema selection (exactly one required for sender/read-only mode)
     bool use_toy   = false;
     bool use_gluex = false;
@@ -46,8 +47,10 @@ class RootFileProcessor {
 public:
     RootFileProcessor(const CommandLineArgs& args,
                       e2sar::Segmenter* segmenter,
-                      size_t file_index)
-        : args_(args), segmenter_(segmenter), file_index_(file_index) {}
+                      size_t file_index,
+                      int pipe_write_fd = -1)
+        : args_(args), segmenter_(segmenter),
+          file_index_(file_index), pipe_write_fd_(pipe_write_fd) {}
 
     virtual ~RootFileProcessor() = default;
 
@@ -68,7 +71,7 @@ protected:
     const CommandLineArgs& args_;
     e2sar::Segmenter*      segmenter_;
     size_t                 file_index_;
-    boost::chrono::steady_clock::time_point send_start_;
+    int                    pipe_write_fd_;
 };
 
 // Processes Dalitz toy-MC ROOT files (dalitz_root_tree schema).

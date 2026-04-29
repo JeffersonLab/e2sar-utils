@@ -11,14 +11,16 @@
 # Usage: ./tests/test_loopback.sh [options]
 #
 # Options:
-#   --toy           Use Dalitz toy-MC schema (default)
-#   --gluex         Use GlueX kinematic-fit schema
-#   --timeout N     Receiver timeout in seconds (default: 30)
-#   --bufsize N     Batch size in MB (default: 1)
-#   --mtu N         MTU size (default: 9000)
-#   --files N       Number of times to process the test file (default: 2)
-#   --dataid N      Data ID passed to E2SAR Segmenter (default: 0)
-#   --help          Show this help message
+#   --toy              Use Dalitz toy-MC schema (default)
+#   --gluex            Use GlueX kinematic-fit schema
+#   --timeout N        Receiver timeout in seconds (default: 30)
+#   --bufsize N        Batch size in MB (default: 1)
+#   --mtu N            MTU size (default: 9000)
+#   --files N          Number of parallel file streams (default: 2; same file repeated N times)
+#   --dataid N         Data ID passed to E2SAR Segmenter (default: 0)
+#   --rate R           Send rate in Gbps passed to Segmenter (default: -1.0 = no limit)
+#   --numsocks N       Number of Segmenter send sockets (default: 4)
+#   --help             Show this help message
 #
 
 set -e
@@ -29,6 +31,8 @@ BUFSIZE_MB=1
 MTU=9000
 NUM_FILES=2
 DATAID=0
+RATE=-1.0
+NUM_SOCKS=4
 SCHEMA=toy   # toy | gluex
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -48,7 +52,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 usage() {
-    head -20 "$0" | tail -17
+    head -24 "$0" | tail -21
     exit 0
 }
 
@@ -117,6 +121,14 @@ while [[ $# -gt 0 ]]; do
             DATAID="$2"
             shift 2
             ;;
+        --rate)
+            RATE="$2"
+            shift 2
+            ;;
+        --numsocks)
+            NUM_SOCKS="$2"
+            shift 2
+            ;;
         --help)
             usage
             ;;
@@ -165,6 +177,8 @@ echo "  Tree:        $TREE_NAME"
 echo "  Files:       $NUM_FILES"
 echo "  Batch size:  $BUFSIZE_MB MB"
 echo "  MTU:         $MTU"
+echo "  Rate:        $RATE Gbps"
+echo "  Num sockets: $NUM_SOCKS"
 echo "  Data ID:     $DATAID"
 echo "  Timeout:     $TIMEOUT seconds"
 echo "  Output dir:  $OUTPUT_DIR"
@@ -204,6 +218,8 @@ cd "$PROJECT_ROOT"
     --bufsize-mb "$BUFSIZE_MB" \
     --mtu "$MTU" \
     --dataid "$DATAID" \
+    --rate "$RATE" \
+    --numsocks "$NUM_SOCKS" \
     $FILE_ARGS \
     > "$SEND_LOG" 2>&1
 
@@ -219,10 +235,11 @@ fi
 log_info "Sender completed successfully"
 
 # Extract sender statistics
-BUFFERS_SENT=$(grep "Total buffers submitted:" "$SEND_LOG" | awk '{print $NF}')
+BUFFERS_SENT=$(grep "Total batches submitted:" "$SEND_LOG" | awk '{print $NF}')
 SEND_ERRORS=$(grep "Send errors:" "$SEND_LOG" | awk '{print $NF}')
+THROUGHPUT=$(grep "Estimated effective throughput" "$SEND_LOG" | awk '{print $NF}')
 
-log_info "Sender stats: $BUFFERS_SENT buffers sent, $SEND_ERRORS errors"
+log_info "Sender stats: $BUFFERS_SENT batches sent, $SEND_ERRORS errors, ${THROUGHPUT} Gbps"
 
 # Wait for receiver to process remaining data (with timeout)
 log_info "Waiting up to $TIMEOUT seconds for receiver to finish processing..."
@@ -243,13 +260,13 @@ while true; do
     RECEIVED_FILES=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
 
     if [[ "$RECEIVED_FILES" -ge "$EXPECTED_FILES" ]]; then
-        log_info "All $EXPECTED_FILES files received"
+        log_info "All $EXPECTED_FILES EJFAT events received"
         break
     fi
 
     # Progress update every 5 seconds
     if [[ $((ELAPSED % 5)) -eq 0 ]] && [[ $ELAPSED -gt 0 ]]; then
-        log_info "Progress: $RECEIVED_FILES / $EXPECTED_FILES files received ($ELAPSED seconds elapsed)"
+        log_info "Progress: $RECEIVED_FILES / $EXPECTED_FILES EJFAT events received ($ELAPSED seconds elapsed)"
     fi
 
     sleep 1
@@ -259,15 +276,18 @@ done
 log_info "Stopping receiver..."
 kill -INT "$RECV_PID" 2>/dev/null || true
 wait "$RECV_PID" 2>/dev/null || true
+sync  # flush kernel page cache so file count is accurate
 
 # Count final results
 RECEIVED_FILES=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
 
 echo ""
 log_info "========== Test Results =========="
+echo "  Parallel files:   $NUM_FILES"
 echo "  Buffers sent:     $BUFFERS_SENT"
 echo "  Files received:   $RECEIVED_FILES"
 echo "  Send errors:      $SEND_ERRORS"
+echo "  Throughput:       $THROUGHPUT Gbps"
 
 # Verify results
 if [[ "$RECEIVED_FILES" -eq "$BUFFERS_SENT" ]] && [[ "$SEND_ERRORS" -eq "0" ]]; then
