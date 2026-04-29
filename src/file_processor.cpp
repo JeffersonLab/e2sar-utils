@@ -3,6 +3,7 @@
 #include <sstream>
 #include <chrono>
 #include <thread>
+#include <unistd.h>
 
 // ── Globals ──────────────────────────────────────────────────────────────────
 
@@ -12,6 +13,16 @@ std::mutex          cout_mutex;
 // ── File-local helpers ───────────────────────────────────────────────────────
 
 namespace {
+
+bool writeAll(int fd, const void* buf, size_t n) {
+    const auto* p = static_cast<const uint8_t*>(buf);
+    while (n > 0) {
+        ssize_t w = write(fd, p, n);
+        if (w <= 0) return false;
+        p += w; n -= w;
+    }
+    return true;
+}
 
 struct StreamingStats {
     size_t total_events_processed = 0;
@@ -24,13 +35,11 @@ struct StreamingStats {
         total_bytes_sent   += bytes;
     }
 
-    void printProgress(std::ostringstream& o, boost::chrono::steady_clock::time_point& start_time) const {
+    void printProgress(std::ostringstream& o) const {
         auto timestamp = boost::chrono::high_resolution_clock::now();
-        auto elapsedUsec = boost::chrono::duration_cast<boost::chrono::microseconds>(timestamp - start_time);
         o << "  EJFAT Events: " << total_batches_sent
           << " | Physics Events: " << total_events_processed
-          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0))
-          << " | Estimated Thread Throughput (Gbps): " << (total_bytes_sent * 8.0)/(elapsedUsec.count() * 1000);
+          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0));
     }
 };
 
@@ -50,7 +59,6 @@ void freeBuffer(boost::any a) {
 bool RootFileProcessor::process(const std::string& file_path,
                                 const std::string& tree_name) {
     auto file = std::unique_ptr<TFile>(TFile::Open(file_path.c_str(), "READ"));
-    send_start_ = boost::chrono::high_resolution_clock::now();
     if (!file || file->IsZombie()) {
         std::lock_guard<std::mutex> lock(cout_mutex);
         std::cerr << "[File " << file_index_ << "] Error: Cannot open file " << file_path << std::endl;
@@ -145,7 +153,26 @@ bool RootFileProcessor::process(const std::string& file_path,
 
                 if (stats.total_batches_sent % 10 == 0) {
                     std::ostringstream oss;
-                    stats.printProgress(oss, send_start_);
+                    stats.printProgress(oss);
+                    thread_print(file_index_, oss);
+                }
+            } else if (args_.send_data && pipe_write_fd_ >= 0) {
+                uint8_t* buf_ptr  = reinterpret_cast<uint8_t*>(batch->data());
+                uint64_t nbytes   = static_cast<uint64_t>(batch->size() * sizeof(double));
+                bool pipe_ok = writeAll(pipe_write_fd_, &nbytes, sizeof(nbytes)) &&
+                               writeAll(pipe_write_fd_, buf_ptr, nbytes);
+                delete batch;
+                batch = nullptr;
+                if (!pipe_ok) {
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cerr << "[File " << file_index_ << "] Pipe write error" << std::endl;
+                    return false;
+                }
+                stats.addBatch(events_in_batch, nbytes);
+
+                if (stats.total_batches_sent % 10 == 0) {
+                    std::ostringstream oss;
+                    stats.printProgress(oss);
                     thread_print(file_index_, oss);
                 }
             } else if (!args_.send_data) {
@@ -172,9 +199,14 @@ bool RootFileProcessor::process(const std::string& file_path,
     //    thread_print(file_index_, oss);
     //}
 
-    if (args_.send_data && segmenter_) {
+    if (pipe_write_fd_ >= 0) {
+        uint64_t sentinel = 0;
+        writeAll(pipe_write_fd_, &sentinel, sizeof(sentinel));
+    }
+
+    if (args_.send_data && (segmenter_ || pipe_write_fd_ >= 0)) {
         std::ostringstream oss;
-        stats.printProgress(oss, send_start_);
+        stats.printProgress(oss);
         thread_print(file_index_, oss);
     }
 
