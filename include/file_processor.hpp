@@ -68,6 +68,7 @@ protected:
     const CommandLineArgs& args_;
     e2sar::Segmenter*      segmenter_;
     size_t                 file_index_;
+    boost::chrono::steady_clock::time_point send_start_;
 };
 
 // Processes Dalitz toy-MC ROOT files (dalitz_root_tree schema).
