@@ -44,25 +44,34 @@ meson install -C build/
 ## Usage
 
 ```
-Sender:   e2sar-root --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> [OPTIONS] <file1.root> ...
-Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
+Sender (files): e2sar-root --toy|--gluex --tree <name> --send --uri <uri> [--parallel N] [OPTIONS] <file1.root> ...
+Sender (dir):   e2sar-root --toy|--gluex --tree <name> --send --uri <uri> --dir <dir> [--parallel N] [OPTIONS]
+Receiver:       e2sar-root --recv --uri <uri> --recv-ip <ip> [OPTIONS]
+Read-only:      e2sar-root --toy|--gluex --tree <name> [--dir <dir>] [<file.root> ...]
 ```
 
 ### Key Options
 
-| Option | Description |
-|--------|-------------|
-| `--toy` | Use Dalitz toy-MC schema |
-| `--gluex` | Use GlueX kinematic-fit schema |
-| `-t, --tree <name>` | ROOT tree name to read |
-| `-s, --send` | Enable E2SAR network sending |
-| `-r, --recv` | Enable E2SAR network receiving |
-| `-u, --uri <uri>` | EJFAT URI |
-| `--bufsize-mb N` | Batch size in MB (default: 10) |
-| `--mtu N` | MTU in bytes (default: 1500, max: 9000) |
-| `--dataid N` | Data ID passed to E2SAR Segmenter (default: 0) |
-| `--recv-ip <ip>` | IP address for receiver |
-| `-o, --output-pattern` | Output filename pattern (default: `event_{:08d}.dat`) |
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--toy` | — | Use Dalitz toy-MC schema |
+| `--gluex` | — | Use GlueX kinematic-fit schema |
+| `-t, --tree <name>` | — | ROOT tree name to read |
+| `-s, --send` | false | Enable E2SAR network sending |
+| `-r, --recv` | false | Enable E2SAR network receiving |
+| `-u, --uri <uri>` | — | EJFAT URI |
+| `--dir <path>` | — | Directory of `*.root` files (alternative to positional files) |
+| `--parallel N` | 4 | Max concurrent file streams when sending |
+| `--bufsize-mb N` | 10 | Batch size in MB |
+| `--mtu N` | 1500 | MTU in bytes (max: 9000) |
+| `--rate R` | 1.0 | Send rate in Gbps (negative = no limit) |
+| `--numsocks N` | 4 | Number of Segmenter send sockets/threads |
+| `--dataid N` | 0 | Data ID passed to E2SAR Segmenter |
+| `--recv-ip <ip>` | — | IP address for receiver |
+| `--recv-port N` | 19522 | Starting UDP port for receiver |
+| `-o, --output-pattern` | `event_{:08d}.dat` | Output filename pattern for received events |
+| `--event-timeout N` | 500 | Reassembly timeout in ms |
+| `-c, --withcp` | false | Enable control plane interactions |
 
 ### Examples
 
@@ -71,13 +80,23 @@ Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
 ./build/bin/e2sar-root --toy  --tree dalitz_root_tree file.root
 ./build/bin/e2sar-root --gluex --tree myTree file.root
 
-# Send toy-MC data
-./build/bin/e2sar-root --toy -t dalitz_root_tree --send \
-  -u "ejfat://token@host:port/lb/1?data=ip:port" --bufsize-mb 5 file.root
+# Read-only from a directory of ROOT files
+./build/bin/e2sar-root --toy --tree dalitz_root_tree --dir data/
 
-# Send GlueX data with jumbo frames
+# Send a list of files (up to 4 in parallel by default)
+./build/bin/e2sar-root --toy -t dalitz_root_tree --send \
+  -u "ejfat://token@host:port/lb/1?data=ip:port" \
+  --bufsize-mb 5 file0.root file1.root file2.root
+
+# Send all ROOT files from a directory, 8 at a time
+./build/bin/e2sar-root --toy -t dalitz_root_tree --send \
+  -u "ejfat://token@host:port/lb/1?data=ip:port" \
+  --dir data/ --parallel 8 --mtu 9000
+
+# Send GlueX data with jumbo frames, rate-limited
 ./build/bin/e2sar-root --gluex -t myTree --send \
-  -u "ejfat://token@host:port/lb/1?data=ip:port" --mtu 9000 file.root
+  -u "ejfat://token@host:port/lb/1?data=ip:port" \
+  --mtu 9000 --rate 5.0 file.root
 
 # Receive events
 ./build/bin/e2sar-root --recv \
@@ -85,29 +104,55 @@ Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
   --recv-ip 127.0.0.1 -o output_{:06d}.dat
 ```
 
+### `--dir` and `--parallel`
+
+`--dir <path>` scans the directory non-recursively for `*.root` files (sorted alphabetically) and uses them as the file list. It is mutually exclusive with positional file arguments.
+
+`--parallel N` (default: 4) caps how many files are read and sent concurrently. Files are processed in sequential rounds of N: each round forks N child processes (one per file), sends their data through a shared Segmenter, then reaps all children before starting the next round. After all rounds complete, `stopThreads()` ensures the send queue is fully drained before the process exits.
+
+```bash
+# Process 7 files in rounds of 3 (rounds: 3+3+1)
+./build/bin/e2sar-root --toy -t dalitz_root_tree --send \
+  -u "ejfat://..." --dir data/ --parallel 3 --rate 0.5
+```
+
 ## Testing
 
 After making code changes, always run the loopback integration test:
 
 ```bash
-# Run the loopback test (sender + receiver over localhost)
-./tests/test_loopback.sh
+# Default (toy schema, 2 files, parallel=4, rate=unlimited)
+./tests/test_loopback.sh --toy
 
-# With custom options
-./tests/test_loopback.sh --timeout 60 --bufsize 2 --files 3
+# Rate-limited to avoid UDP loss on loopback (recommended)
+./tests/test_loopback.sh --toy --rate 0.5 --timeout 120
+
+# Test directory mode: 7 files processed 3 at a time
+./tests/test_loopback.sh --toy --dir-mode --files 7 --parallel 3 \
+  --rate 0.5 --timeout 300 --bufsize 2
+
+# GlueX schema
+./tests/test_loopback.sh --gluex --rate 0.5 --timeout 120
 ```
 
-The test script:
-1. Starts a receiver on the loopback interface
-2. Runs the sender (`--toy` schema) with parallel file processing
-3. Verifies all buffers were received without errors
-4. Reports PASS/FAIL status
+The test script starts a receiver on the loopback interface, runs the sender, waits for all events to arrive, then reports PASS/FAIL.
 
-**Options:**
-- `--timeout N` - Receiver timeout in seconds (default: 30)
-- `--bufsize N` - Batch size in MB (default: 1)
-- `--mtu N` - MTU size (default: 9000)
-- `--files N` - Number of parallel file streams (default: 2)
+**Test script options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--toy` / `--gluex` | `--toy` | Event schema |
+| `--files N` | 2 | Number of file streams |
+| `--parallel N` | 4 | Max concurrent streams (`--parallel` passed to sender) |
+| `--dir-mode` | false | Use `--dir` with symlinks instead of positional files |
+| `--bufsize N` | 1 | Batch size in MB |
+| `--mtu N` | 9000 | MTU size |
+| `--rate R` | -1.0 | Send rate in Gbps (-1 = no limit) |
+| `--numsocks N` | 4 | Segmenter send sockets |
+| `--dataid N` | 0 | Data ID |
+| `--timeout N` | 30 | Receiver wait time in seconds |
+
+> **Note on UDP loss:** At uncapped rate (`--rate -1`), the loopback socket buffer can overflow and drop packets, causing reassembly failures. Use `--rate 0.5` for reliable loopback tests.
 
 ## Build Options
 

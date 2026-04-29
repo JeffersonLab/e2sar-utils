@@ -20,6 +20,7 @@
 #include <atomic>
 #include <signal.h>
 #include <future>
+#include <filesystem>
 
 namespace po = boost::program_options;
 
@@ -459,7 +460,11 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         ("numsocks", po::value<uint32_t>(&args.num_send_sockets)->default_value(4),
          "number of send sockets/threads in the Segmenter (default: 4)")
         ("novalidate,v", po::bool_switch()->default_value(false),
-         "don't validate server SSL certificate");
+         "don't validate server SSL certificate")
+        ("dir", po::value<std::string>(&args.dir_path),
+         "Directory of *.root files to process (mutually exclusive with positional files)")
+        ("parallel", po::value<uint32_t>(&args.parallel_streams)->default_value(4),
+         "Max concurrent file streams when sending (default: 4)");
 
     po::positional_options_description pos;
     pos.add("files", -1);
@@ -474,13 +479,15 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
 
         if (vm.count("help")) {
             std::cout << "Usage:\n"
-                      << "  Sender: " << argv[0] << " --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> [OPTIONS] <file1.root> ...\n"
-                      << "  Receiver: " << argv[0] << " --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]\n\n"
+                      << "  Sender (files): " << argv[0] << " --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> [--parallel N] [OPTIONS] <file1.root> ...\n"
+                      << "  Sender (dir):   " << argv[0] << " --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> --dir <dir> --parallel N [OPTIONS]\n"
+                      << "  Receiver:       " << argv[0] << " --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]\n\n"
                       << desc << "\n"
                       << "Examples:\n"
                       << "  Read only (toy):   " << argv[0] << " --toy  --tree dalitz_root_tree data/file.root\n"
-                      << "  Read only (gluex): " << argv[0] << " --gluex --tree myTree data/file.root\n"
+                      << "  Read only (dir):   " << argv[0] << " --toy  --tree dalitz_root_tree --dir data/\n"
                       << "  Send (toy):        " << argv[0] << " --toy  -t dalitz_root_tree --send -u ejfat://... --bufsize-mb 5 file.root\n"
+                      << "  Send (dir):        " << argv[0] << " --toy  -t dalitz_root_tree --send -u ejfat://... --dir data/ --parallel 8\n"
                       << "  Send (gluex):      " << argv[0] << " --gluex -t myTree          --send -u ejfat://... --bufsize-mb 5 file.root\n"
                       << "  Send (jumbo):      " << argv[0] << " --toy  -t dalitz_root_tree --send -u ejfat://... --mtu 9000 file.root\n"
                       << "  Receive:           " << argv[0] << " --recv -u ejfat://... --recv-ip 127.0.0.1 -o output_{:06d}.dat\n";
@@ -491,6 +498,24 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
 
         if (args.send_data && args.recv_data)
             throw std::runtime_error("Cannot use --send and --recv simultaneously");
+
+        if (!args.dir_path.empty() && !args.file_paths.empty())
+            throw std::runtime_error("--dir and positional files are mutually exclusive");
+
+        if (args.parallel_streams == 0)
+            throw std::runtime_error("--parallel must be greater than 0");
+
+        if (!args.dir_path.empty()) {
+            namespace fs = std::filesystem;
+            for (const auto& entry : fs::directory_iterator(args.dir_path))
+                if (entry.is_regular_file() && entry.path().extension() == ".root")
+                    args.file_paths.push_back(entry.path().string());
+            std::sort(args.file_paths.begin(), args.file_paths.end());
+            if (args.file_paths.empty())
+                throw std::runtime_error("No .root files found in: " + args.dir_path);
+            std::cout << "Found " << args.file_paths.size()
+                      << " .root file(s) in " << args.dir_path << std::endl;
+        }
 
         if (!args.recv_data) {
             if (!args.use_toy && !args.use_gluex)
@@ -583,53 +608,14 @@ int main(int argc, char* argv[]) {
         global_buffer_id = 0;
 
         if (args.send_data) {
-            // Fork one child per file BEFORE creating the Segmenter so that no
-            // gRPC/E2SAR background threads exist at fork time.
-            std::cout << "\nForking " << args.file_paths.size()
-                      << " reader process(es)..." << std::endl;
+            const size_t total_files = args.file_paths.size();
+            const size_t N = std::min((size_t)args.parallel_streams, total_files);
+            std::cout << "\nProcessing " << total_files << " file(s), "
+                      << N << " at a time..." << std::endl;
 
-            std::vector<int>   pipe_read_fds;
-            std::vector<pid_t> child_pids;
-
-            for (size_t i = 0; i < args.file_paths.size(); ++i) {
-                int fds[2];
-                if (pipe(fds) < 0) {
-                    std::cerr << "pipe() failed: " << strerror(errno) << std::endl;
-                    return 1;
-                }
-
-                pid_t pid = fork();
-                if (pid < 0) {
-                    std::cerr << "fork() failed: " << strerror(errno) << std::endl;
-                    return 1;
-                }
-
-                if (pid == 0) {
-                    // child: close all read ends inherited from previous iterations,
-                    // then our own read end; stream batches to parent via write end
-                    for (int rfd : pipe_read_fds) close(rfd);
-                    close(fds[0]);
-
-                    std::unique_ptr<RootFileProcessor> proc;
-                    if (args.use_toy)
-                        proc = std::make_unique<ToyFileProcessor>(args, nullptr, i, fds[1]);
-                    else
-                        proc = std::make_unique<GluexFileProcessor>(args, nullptr, i, fds[1]);
-
-                    bool ok = proc->process(args.file_paths[i], args.tree_name);
-                    close(fds[1]);
-                    _exit(ok ? 0 : 1);
-                }
-
-                // parent: keep read end, discard write end
-                close(fds[1]);
-                pipe_read_fds.push_back(fds[0]);
-                child_pids.push_back(pid);
-                std::cout << "  Process " << i << " (pid " << pid << "): "
-                          << args.file_paths[i] << std::endl;
-            }
-
-            // Create the single shared Segmenter in parent after all forks
+            // Create the single shared Segmenter up front.
+            // Child processes only read ROOT data and write to pipes — they never
+            // call into gRPC/E2SAR, so forking after Segmenter creation is safe.
             auto segmenter = initializeSegmenter(args.ejfat_uri, args.data_id,
                                                  args.event_src_id, args.mtu,
                                                  args.withCP, args.rateGbps,
@@ -637,51 +623,89 @@ int main(int argc, char* argv[]) {
                                                  args.validate);
             if (!segmenter) {
                 std::cerr << "Failed to initialize E2SAR segmenter" << std::endl;
-                for (pid_t p : child_pids) { kill(p, SIGTERM); waitpid(p, nullptr, 0); }
                 return 1;
             }
             std::cout << "Segmenter ready. Max payload: "
                       << segmenter->getMaxPldLen() << " bytes" << std::endl;
 
             auto send_start_ = boost::chrono::high_resolution_clock::now();
-            // One reader thread per pipe: reads batches and calls addToSendQueue
-            std::vector<std::future<bool>> reader_futures;
-            for (size_t i = 0; i < pipe_read_fds.size(); ++i) {
-                reader_futures.push_back(std::async(std::launch::async,
-                    parentReaderLoop, pipe_read_fds[i], segmenter.get(), i));
-            }
 
-            std::cout << "\nWaiting for reader threads to complete..." << std::endl;
-            for (size_t i = 0; i < reader_futures.size(); ++i) {
-                if (reader_futures[i].get()) success_count++;
-                else {
-                    failure_count++;
-                    std::cerr << "Reader thread " << i << " failed" << std::endl;
+            for (size_t batch_start = 0; batch_start < total_files; ) {
+                const size_t batch_end = std::min(batch_start + N, total_files);
+                std::cout << "\nBatch [" << batch_start + 1 << ".." << batch_end
+                          << "] of " << total_files << " file(s)..." << std::endl;
+
+                // Local vectors: go out of scope at end of batch → no FD/PID accumulation.
+                std::vector<int>   pipe_read_fds;
+                std::vector<pid_t> child_pids;
+
+                for (size_t i = batch_start; i < batch_end; ++i) {
+                    int fds[2];
+                    if (pipe(fds) < 0) {
+                        std::cerr << "pipe() failed: " << strerror(errno) << std::endl;
+                        return 1;
+                    }
+
+                    pid_t pid = fork();
+                    if (pid < 0) {
+                        std::cerr << "fork() failed: " << strerror(errno) << std::endl;
+                        return 1;
+                    }
+
+                    if (pid == 0) {
+                        // child: close all read ends accumulated so far, then own read end
+                        for (int rfd : pipe_read_fds) close(rfd);
+                        close(fds[0]);
+
+                        std::unique_ptr<RootFileProcessor> proc;
+                        if (args.use_toy)
+                            proc = std::make_unique<ToyFileProcessor>(args, nullptr, i, fds[1]);
+                        else
+                            proc = std::make_unique<GluexFileProcessor>(args, nullptr, i, fds[1]);
+
+                        bool ok = proc->process(args.file_paths[i], args.tree_name);
+                        close(fds[1]);
+                        _exit(ok ? 0 : 1);
+                    }
+
+                    // parent: discard write end immediately; keep read end
+                    close(fds[1]);
+                    pipe_read_fds.push_back(fds[0]);
+                    child_pids.push_back(pid);
+                    std::cout << "  Process " << i << " (pid " << pid << "): "
+                              << args.file_paths[i] << std::endl;
                 }
+                // Exactly (batch_end - batch_start) read FDs open in parent now.
+
+                // One reader thread per pipe; each thread closes its fd before returning.
+                std::vector<std::future<bool>> reader_futures;
+                for (size_t k = 0; k < pipe_read_fds.size(); ++k) {
+                    reader_futures.push_back(std::async(std::launch::async,
+                        parentReaderLoop, pipe_read_fds[k], segmenter.get(), batch_start + k));
+                }
+
+                std::cout << "Waiting for reader threads..." << std::endl;
+                for (size_t k = 0; k < reader_futures.size(); ++k) {
+                    if (reader_futures[k].get()) success_count++;
+                    else {
+                        failure_count++;
+                        std::cerr << "Reader thread " << (batch_start + k) << " failed" << std::endl;
+                    }
+                }
+
+                // Reap this batch's children.
+                for (size_t k = 0; k < child_pids.size(); ++k) {
+                    int status = 0;
+                    waitpid(child_pids[k], &status, 0);
+                    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+                        std::cerr << "Child process " << (batch_start + k)
+                                  << " (pid " << child_pids[k] << ") reported failure" << std::endl;
+                }
+
+                batch_start = batch_end;
             }
 
-            // Reap child processes
-            for (size_t i = 0; i < child_pids.size(); ++i) {
-                int status = 0;
-                waitpid(child_pids[i], &status, 0);
-                if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
-                    std::cerr << "Child process " << i << " (pid " << child_pids[i]
-                              << ") reported failure" << std::endl;
-            }
-
-            // Estimate drain time from bytes queued and configured rate
-            {
-                double queued_bytes = static_cast<double>(global_buffer_id.load())
-                                      * args.bufsize_mb * 1024.0 * 1024.0;
-                double rate_bps     = args.rateGbps > 0
-                                      ? args.rateGbps * 1e9
-                                      : 100.0e9;             // uncapped: assume 100 Gbps
-                uint64_t drain_ms   = static_cast<uint64_t>(queued_bytes * 8.0 / rate_bps * 1500.0);
-                drain_ms            = std::max(drain_ms, uint64_t{500});
-                std::cout << "\nWaiting " << drain_ms
-                          << " ms for send queues to drain..." << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(drain_ms));
-            }
+            segmenter->stopThreads();
 
             auto send_end_ = boost::chrono::high_resolution_clock::now();
             auto elapsed_usec_ = boost::chrono::duration_cast<boost::chrono::microseconds>(

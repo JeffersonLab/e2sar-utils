@@ -127,6 +127,20 @@ Events are processed in configurable batches to bound memory usage:
 - Default batch size: 10 MB
 - Memory usage: ~20-30 MB regardless of file size
 
+#### Multi-file parallel sending (`--parallel`)
+
+When sending, files are processed in sequential rounds of up to `--parallel` files at a time (default 4). Within each round:
+
+1. The Segmenter is created once up front (child processes only write to pipes, never call into gRPC, so forking after Segmenter creation is safe).
+2. Up to N child processes are forked — one per file in the round. Each child reads its ROOT file and writes serialized batches to a pipe.
+3. The parent spawns one reader thread per pipe; each thread calls `addToSendQueue` on the shared Segmenter.
+4. When all reader threads finish, child processes are reaped, then the next round begins.
+5. After all rounds, `segmenter->stopThreads()` blocks until the send queue is fully drained before stats are printed and the process exits.
+
+**FD accounting:** peak open FDs per round = 2×N (pipe pairs), dropping to N after each fork, then 0 after reader threads return. Total file count never accumulates.
+
+**`--dir` option:** scans the given directory non-recursively for `*.root` files (sorted), populating the file list. Mutually exclusive with positional file arguments.
+
 ### Wire Serialization Format
 
 Each event is a flat array of doubles in (E, px, py, pz) order per particle:
@@ -138,17 +152,18 @@ GluexEventData:  [pip4v][pim4v][g14v][g24v][imass_kfit][imassGG][prob] = 19 doub
 ### Command-Line Interface
 
 ```
-Sender:   e2sar-root --toy|--gluex --tree <name> --send --uri <ejfat_uri> [OPTIONS] <file.root> ...
-Receiver: e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
-Read-only: e2sar-root --toy|--gluex --tree <name> <file.root> ...
+Sender (files): e2sar-root --toy|--gluex --tree <name> --send --uri <ejfat_uri> [--parallel N] [OPTIONS] <file1.root> ...
+Sender (dir):   e2sar-root --toy|--gluex --tree <name> --send --uri <ejfat_uri> --dir <dir> [--parallel N] [OPTIONS]
+Receiver:       e2sar-root --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]
+Read-only:      e2sar-root --toy|--gluex --tree <name> [--dir <dir>] [<file.root> ...]
 ```
 
-Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max 9000), `--rate` (Gbps), `--withcp` (control plane), `--files` (parallel streams).
+Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max 9000), `--rate` (Gbps), `--withcp` (control plane), `--dir` (directory of ROOT files), `--parallel` (max concurrent streams, default 4).
 
 ## Testing
 
 ### Test Data
-- **Toy MC:** `dalitz_toy_data_0/dalitz_root_file_0.root` — 543 MB, 2,572,650 events, tree `dalitz_root_tree`
+- **Toy MC:** `dalitz_toy_data_0/` — 7 files (`dalitz_root_file_{0..6}.root`), each 543 MB / 2,572,650 events, tree `dalitz_root_tree`
 - **GlueX:** `gluex/Reduced_PiPiGG_Tree_030735.root` — tree `myTree`
 
 ### Common Test Commands
@@ -159,14 +174,18 @@ Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max
 
 # Read-only (verify processing, no network)
 ./build/bin/e2sar-root --toy  --tree dalitz_root_tree dalitz_toy_data_0/dalitz_root_file_0.root
+./build/bin/e2sar-root --toy  --tree dalitz_root_tree --dir dalitz_toy_data_0/
 ./build/bin/e2sar-root --gluex --tree myTree gluex/Reduced_PiPiGG_Tree_030735.root
 
 # Loopback integration test (REQUIRED after code changes to bin/ or src/)
 ./tests/test_loopback.sh --toy
 ./tests/test_loopback.sh --gluex
 
-# With custom options
-./tests/test_loopback.sh --toy --timeout 60 --bufsize 2 --files 3
+# With custom options (rate-limit to 0.5 Gbps avoids UDP loss on loopback)
+./tests/test_loopback.sh --toy --timeout 120 --bufsize 2 --files 3 --rate 0.5
+
+# Directory mode: 7 real files, 3 at a time
+./tests/test_loopback.sh --toy --dir-mode --files 7 --parallel 3 --rate 0.5 --timeout 300 --bufsize 2
 ```
 
 ### Loopback Test Options
@@ -177,7 +196,12 @@ Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max
 | `--timeout N` | 30 | Receiver wait time in seconds |
 | `--bufsize N` | 1 | Batch size in MB |
 | `--mtu N` | 9000 | MTU size (jumbo frames) |
-| `--files N` | 2 | Number of parallel file streams |
+| `--files N` | 2 | Number of file streams (repeated same file, or symlinks in dir mode) |
+| `--parallel N` | 4 | Max concurrent file streams passed to `--parallel` |
+| `--dir-mode` | false | Use `--dir` + symlinks instead of positional file list |
+| `--rate R` | -1.0 | Send rate in Gbps (-1 = no limit; use 0.5 to avoid loopback UDP loss) |
+| `--numsocks N` | 4 | Number of Segmenter send sockets |
+| `--dataid N` | 0 | Data ID passed to Segmenter |
 
 ## Adding New Event Types
 
