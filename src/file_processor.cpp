@@ -24,10 +24,13 @@ struct StreamingStats {
         total_bytes_sent   += bytes;
     }
 
-    void printProgress(std::ostringstream& o) const {
+    void printProgress(std::ostringstream& o, boost::chrono::steady_clock::time_point& start_time) const {
+        auto timestamp = boost::chrono::high_resolution_clock::now();
+        auto elapsedUsec = boost::chrono::duration_cast<boost::chrono::microseconds>(timestamp - start_time);
         o << "  EJFAT Events: " << total_batches_sent
           << " | Physics Events: " << total_events_processed
-          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0));
+          << " | MB sent: " << (total_bytes_sent / (1024.0 * 1024.0))
+          << " | Estimated Thread Throughput (Gbps): " << (total_bytes_sent * 8.0)/(elapsedUsec.count() * 1000);
     }
 };
 
@@ -47,6 +50,7 @@ void freeBuffer(boost::any a) {
 bool RootFileProcessor::process(const std::string& file_path,
                                 const std::string& tree_name) {
     auto file = std::unique_ptr<TFile>(TFile::Open(file_path.c_str(), "READ"));
+    send_start_ = boost::chrono::high_resolution_clock::now();
     if (!file || file->IsZombie()) {
         std::lock_guard<std::mutex> lock(cout_mutex);
         std::cerr << "[File " << file_index_ << "] Error: Cannot open file " << file_path << std::endl;
@@ -141,7 +145,7 @@ bool RootFileProcessor::process(const std::string& file_path,
 
                 if (stats.total_batches_sent % 10 == 0) {
                     std::ostringstream oss;
-                    stats.printProgress(oss);
+                    stats.printProgress(oss, send_start_);
                     thread_print(file_index_, oss);
                 }
             } else if (!args_.send_data) {
@@ -170,7 +174,7 @@ bool RootFileProcessor::process(const std::string& file_path,
 
     if (args_.send_data && segmenter_) {
         std::ostringstream oss;
-        stats.printProgress(oss);
+        stats.printProgress(oss, send_start_);
         thread_print(file_index_, oss);
     }
 
