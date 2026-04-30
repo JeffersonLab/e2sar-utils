@@ -256,22 +256,33 @@ std::unique_ptr<e2sar::Reassembler> initializeReassembler(
 
     e2sar::EjfatURI uri = uri_result.value();
 
-    boost::asio::ip::address ip;
-    try {
-        ip = boost::asio::ip::make_address(recv_ip);
-    } catch (const std::exception& e) {
-        std::cerr << "Error parsing IP address: " << e.what() << std::endl;
-        return nullptr;
-    }
-
     e2sar::Reassembler::ReassemblerFlags rflags;
     rflags.useCP = withCP;
     rflags.withLBHeader = !withCP;
     rflags.eventTimeout_ms = event_timeout_ms;
     rflags.validateCert = validateCert;
 
-    auto reassembler = std::make_unique<e2sar::Reassembler>(
-        uri, ip, recv_port, num_threads, rflags);
+    std::unique_ptr<e2sar::Reassembler> reassembler;
+    try {
+        if (recv_ip.empty()) {
+            std::cout << "No --recv-ip specified, auto-detecting interface..." << std::endl;
+            reassembler = std::make_unique<e2sar::Reassembler>(
+                uri, recv_port, num_threads, rflags);
+        } else {
+            boost::asio::ip::address ip;
+            try {
+                ip = boost::asio::ip::make_address(recv_ip);
+            } catch (const std::exception& e) {
+                std::cerr << "Error parsing IP address: " << e.what() << std::endl;
+                return nullptr;
+            }
+            reassembler = std::make_unique<e2sar::Reassembler>(
+                uri, ip, recv_port, num_threads, rflags);
+        }
+    } catch (const e2sar::E2SARException& e) {
+        std::cerr << "Error initializing Reassembler: " << e.what() << std::endl;
+        return nullptr;
+    }
 
     std::cout << "Using IP address: " << reassembler->get_dataIP() << std::endl;
     std::cout << "Receiving on ports: " << reassembler->get_recvPorts().first
@@ -438,7 +449,7 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         ("mtu", po::value<uint16_t>(&args.mtu)->default_value(1500),
          "MTU size in bytes for E2SAR segmenter (default: 1500)")
         ("recv-ip", po::value<std::string>(&args.recv_ip),
-         "IP address for receiver to listen on (required for --recv)")
+         "IP address for receiver to listen on (optional; auto-detected if omitted)")
         ("recv-port", po::value<uint16_t>(&args.recv_port)->default_value(19522),
          "Starting UDP port for receiver (default: 19522)")
         ("recv-threads", po::value<size_t>(&args.recv_threads)->default_value(1),
@@ -481,7 +492,7 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
             std::cout << "Usage:\n"
                       << "  Sender (files): " << argv[0] << " --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> [--parallel N] [OPTIONS] <file1.root> ...\n"
                       << "  Sender (dir):   " << argv[0] << " --toy|--gluex --tree <tree_name> --send --uri <ejfat_uri> --dir <dir> --parallel N [OPTIONS]\n"
-                      << "  Receiver:       " << argv[0] << " --recv --uri <ejfat_uri> --recv-ip <ip> [OPTIONS]\n\n"
+                      << "  Receiver:       " << argv[0] << " --recv --uri <ejfat_uri> [--recv-ip <ip>] [OPTIONS]\n\n"
                       << desc << "\n"
                       << "Examples:\n"
                       << "  Read only (toy):   " << argv[0] << " --toy  --tree dalitz_root_tree data/file.root\n"
@@ -540,8 +551,6 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         if (args.recv_data) {
             if (args.ejfat_uri.empty())
                 throw std::runtime_error("--uri is required when --recv is enabled");
-            if (args.recv_ip.empty())
-                throw std::runtime_error("--recv-ip is required when --recv is enabled");
             if (args.event_timeout_ms <= 0)
                 throw std::runtime_error("--event-timeout must be greater than 0");
         }

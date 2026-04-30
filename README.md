@@ -46,7 +46,7 @@ meson install -C build/
 ```
 Sender (files): e2sar-root --toy|--gluex --tree <name> --send --uri <uri> [--parallel N] [OPTIONS] <file1.root> ...
 Sender (dir):   e2sar-root --toy|--gluex --tree <name> --send --uri <uri> --dir <dir> [--parallel N] [OPTIONS]
-Receiver:       e2sar-root --recv --uri <uri> --recv-ip <ip> [OPTIONS]
+Receiver:       e2sar-root --recv --uri <uri> [--recv-ip <ip>] [OPTIONS]
 Read-only:      e2sar-root --toy|--gluex --tree <name> [--dir <dir>] [<file.root> ...]
 ```
 
