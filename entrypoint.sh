@@ -134,18 +134,19 @@ if [ -n "${RECV_IP:-}" ]; then
     echo "✓ Using RECV_IP from environment: ${RECV_IP}"
 else
     SENDER_IP=""
+    RECV_IP=""
 
     # Extract first IPv4 address after data=
     # Example:
     # ...&data=192.188.29.54&data=[2001:400:a300::54]
-    if [ -n "${ERSAP_URI:-}" ]; then
-        SENDER_IP=$(printf '%s\n' "$ERSAP_URI" | \
+    if [ -n "${EJFAT_URI:-}" ]; then
+        SENDER_IP=$(printf '%s\n' "$EJFAT_URI" | \
             grep -oE 'data=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
             head -n 1 | cut -d= -f2)
     fi
 
     if [ -n "$SENDER_IP" ]; then
-        echo "✓ Extracted sender IPv4 from ERSAP_URI: ${SENDER_IP}"
+        echo "✓ Extracted sender IPv4 from EJFAT_URI: ${SENDER_IP}"
 
         RECV_IP=$(ip route get "$SENDER_IP" 2>/dev/null | awk '
             {
