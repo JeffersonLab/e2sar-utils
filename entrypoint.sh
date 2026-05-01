@@ -209,6 +209,8 @@ echo "=========================================="
 echo "All systems initialized. Starting ERSAP..."
 echo "=========================================="
 
+ulimit -n 65536
+
 # Use exec to replace this shell with ERSAP, making it PID 1
 # This ensures proper signal handling (SIGTERM, etc.)
 exec ersap-shell "${ERSAP_SCRIPT}"
