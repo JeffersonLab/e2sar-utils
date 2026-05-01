@@ -29,7 +29,7 @@ Do not proceed until both are provided.
 ## Step 2: Submit the Job
 
 ```bash
-ssh -q perlmutter.nersc.gov "cd /global/cfs/cdirs/amsc016/haidis && EJFAT_URI='<EJFAT_URI>' sbatch -N <NUM_NODES> sbatch/haidis_slurm.sh"
+ssh -q perlmutter.nersc.gov "cd /global/cfs/cdirs/amsc016/haidis && EJFAT_URI='<EJFAT_URI>' PODMANHPC_ADDITIONAL_STORES=/global/cfs/cdirs/amsc016/shared_images sbatch -N <NUM_NODES> sbatch/haidis_slurm.sh"
 ```
 
 Extract the job ID from `Submitted batch job <job_id>`. Tell the user: "Job submitted: ID **\<job_id\>**"
@@ -58,13 +58,15 @@ On exit 0, save the node list from the `RUNNING <nodes>` output and proceed to S
 
 ## Step 4: Monitor Logs While Running
 
-Poll every 15–30s until both containers are ready (see Step 4a) or the job leaves `R` state:
+Poll every 15–30s until the job completes or leaves `R` state. Use this command on **every** poll — both before and after data starts flowing:
 
 ```bash
 ssh -q perlmutter.nersc.gov "tail -n 80 /global/cfs/cdirs/amsc016/haidis/runs/slurm-<job_id>.out; tail -n 40 /global/cfs/cdirs/amsc016/haidis/runs/slurm-<job_id>.err; tail -n 40 /global/cfs/cdirs/amsc016/haidis/runs/slurm_job_<job_id>/ersap_*.log 2>/dev/null"
 ```
 
-ERSAP logs only appear ~30s after the job enters `R` state. Report notable events (phase completions, errors, warnings) as they appear.
+ERSAP logs only appear ~30s after the job enters `R` state. On every poll, scan **both** `.out` and `.err` and report notable events immediately:
+- `.out`: phase completions, `Waiting for data`, `Training completed`, `SAGIPS srun completed`
+- `.err`: `Traceback`, `ValueError`, `IndexError`, `Error executing job`, `srun: error` — report these to the user immediately, even if training appeared to start successfully
 
 ## Step 4a: Prompt User to Send Data
 
@@ -81,7 +83,7 @@ Once both signals are present for all nodes, **stop polling and tell the user:**
 > docker run --rm --network=host -v /nvme/haidis/toy_data:/nvme/haidis/toy_data ibaldin/e2sar-utils:0.1.2 e2sar-root -s -u '<EJFAT URI>' --withcp --files /nvme/haidis/toy_data/dalitz_toy_data_0/dalitz_root_file_0.root --tree dalitz_root_tree --bufsize-mb 1 --mtu 9000
 > ```
 
-Resume polling (Step 4) once the user confirms data is being sent.
+Resume polling (Step 4) once the user confirms data is being sent. Continue polling `.err` on every cycle even after training has started — errors such as `Traceback`, `ValueError`, `IndexError`, and `srun: error` appear there and will not show up in `.out`.
 
 ## Step 5: Verify Completion
 
@@ -102,7 +104,7 @@ Note: `SIGNAL Killed` in stderr after a zero exit code is expected cleanup behav
 Report: job ID, node list, duration, ranks completed (X/N with list), any errors found, and log paths:
 - Stdout/stderr: `/global/cfs/cdirs/amsc016/haidis/runs/slurm-<job_id>.out/.err`
 - ERSAP: `/global/cfs/cdirs/amsc016/haidis/runs/slurm_job_<job_id>/ersap_<node>.log`
-- Per-node outputs: `/global/cfs/cdirs/amsc016/haidis/outputs/<node>/`
+- Per-node outputs: `/global/cfs/cdirs/amsc016/haidis/runs/slurm_job_<job_id>/<node>/`
 
 ## Shell Command Constraints
 
@@ -113,4 +115,4 @@ A pre-execution hook flags commands with these patterns — avoid them:
 
 ## Notes
 
-sbatch script: `/global/cfs/cdirs/amsc016/haidis/sbatch/haidis_slurm.sh` (default queue: `debug`, 30-min limit). Containers: ERSAP `docker.io/gurjyan/haidis-dp:latest`, SAGIPS `codecr.jlab.org/datascience/haidis-ips/nersc_base`, E2SAR `docker.io/ibaldin/e2sar:0.3.1`. Do NOT use `--signal=` in Slurm options (known Perlmutter issue).
+sbatch script: `/global/cfs/cdirs/amsc016/haidis/sbatch/haidis_slurm.sh` (default queue: `debug`, 30-min limit). Containers: ERSAP `docker.io/gurjyan/haidis-dp:latest`, SAGIPS `localhost/haidis-ips:dev` (locally built; source tree bind-mounted from `/global/cfs/cdirs/amsc016/haidis/haidis-ips/`, entrypoint `/app/scripts/perlmutter_cmd.sh`), E2SAR `docker.io/ibaldin/e2sar:0.3.1`. Do NOT use `--signal=` in Slurm options (known Perlmutter issue).

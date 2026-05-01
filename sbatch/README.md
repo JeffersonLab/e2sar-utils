@@ -24,7 +24,7 @@ $ podman-hpc pull docker.io/gurjyan/haidis-dp:latest
 ## Running the code
 
 ```bash
-EJFAT_URI='ejfats://secrettoken@ejfat-lb.es.net:18008/lb/334?sync=192.188.29.6:19010&data=192.188.29.10&data=[2001:400:a300::10]' sbatch -N <num nodes> haidis/sbatch/haidis_slurm.sh 
+EJFAT_URI='ejfats://secrettoken@ejfat-lb.es.net:18008/lb/334?sync=192.188.29.6:19010&data=192.188.29.10&data=[2001:400:a300::10]' PODMANHPC_ADDITIONAL_STORES=/global/cfs/cdirs/amsc016/shared_images sbatch -N <num nodes> haidis/sbatch/haidis_slurm.sh 
 ```
 
 The output will be in `haidis/runs/slurm-<job id>.out` and `haidis/runs/slurm-<job id>.err`, and the containers will both write to a log file under `haidis/runs/slurm_job_<job id>/haidis_containers.log` 
