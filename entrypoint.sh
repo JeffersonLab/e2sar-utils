@@ -157,7 +157,7 @@ else
                     }
                 }
             }
-        ')
+        ') || true
     fi
 
     # Fallback: use default outbound route
@@ -171,7 +171,7 @@ else
                     }
                 }
             }
-        ')
+        ') || true
     fi
 
     # Fallback: prefer NERSC-facing/public address if present
