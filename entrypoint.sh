@@ -10,6 +10,19 @@
 
 set -euo pipefail
 
+# Raise file descriptor limit early so all child processes inherit it.
+# Requires the container to be started with --ulimit nofile=65536:65536
+# (or equivalent in docker-compose / k8s). If the hard limit is too low,
+# we warn but continue rather than aborting under set -e.
+HARD_LIMIT=$(ulimit -Hn)
+if [ "${HARD_LIMIT}" = "unlimited" ] || [ "${HARD_LIMIT}" -ge 65536 ]; then
+    ulimit -Sn 65536
+    echo "✓ File descriptor limit set to 65536 (hard=${HARD_LIMIT})"
+else
+    echo "WARNING: Cannot set nofile=65536; container hard limit is ${HARD_LIMIT}."
+    echo "  Start the container with: --ulimit nofile=65536:65536"
+fi
+
 echo "=========================================="
 echo "E2SAR EJFAT Tools Container Starting"
 echo "=========================================="
@@ -208,8 +221,6 @@ fi
 echo "=========================================="
 echo "All systems initialized. Starting ERSAP..."
 echo "=========================================="
-
-ulimit -n 65536
 
 # Use exec to replace this shell with ERSAP, making it PID 1
 # This ensures proper signal handling (SIGTERM, etc.)
