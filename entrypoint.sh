@@ -133,67 +133,10 @@ echo "Starting ersap-et-receiver..."
 if [ -n "${RECV_IP:-}" ]; then
     echo "✓ Using RECV_IP from environment: ${RECV_IP}"
 else
-    SENDER_IP=""
-    RECV_IP=""
-
-    # Extract first IPv4 address after data=
-    # Example:
-    # ...&data=192.188.29.54&data=[2001:400:a300::54]
-    if [ -n "${EJFAT_URI:-}" ]; then
-        SENDER_IP=$(printf '%s\n' "$EJFAT_URI" | \
-            grep -oE 'data=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
-            head -n 1 | cut -d= -f2)
-    fi
-
-    if [ -n "$SENDER_IP" ]; then
-        echo "✓ Extracted sender IPv4 from EJFAT_URI: ${SENDER_IP}"
-
-        RECV_IP=$(ip route get "$SENDER_IP" 2>/dev/null | awk '
-            {
-                for (i = 1; i <= NF; i++) {
-                    if ($i == "src") {
-                        print $(i+1)
-                        exit
-                    }
-                }
-            }
-        ') || true
-    fi
-
-    # Fallback: use default outbound route
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '
-            {
-                for (i = 1; i <= NF; i++) {
-                    if ($i == "src") {
-                        print $(i+1)
-                        exit
-                    }
-                }
-            }
-        ') || true
-    fi
-
-    # Fallback: prefer NERSC-facing/public address if present
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep '^128\.55\.' | head -n 1)
-    fi
-
-    # Fallback: prefer 10.249.x.x over 10.100.x.x
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep '^10\.249\.' | head -n 1)
-    fi
-
-    # Last fallback: first non-Docker-bridge IPv4
-    if [ -z "${RECV_IP}" ]; then
-        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
-            grep -Ev '^172\.(1[6-9]|2[0-9]|3[0-1])\.' | \
-            grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
-            head -n 1)
-    fi
+    RECV_IP=$(hostname -I 2>/dev/null | awk '{print $3}')
 
     if [ -z "${RECV_IP}" ]; then
-        echo "ERROR: Could not determine receiver IP address"
+        echo "ERROR: Could not determine receiver IP address (hostname -I returned fewer than 3 addresses)"
         echo "Please set RECV_IP manually."
         exit 1
     fi
