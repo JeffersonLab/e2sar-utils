@@ -8,7 +8,7 @@
 #   -A <allocation>   Project allocation
 #
 # Other Options:
-#   --sagipsimage IMAGE  Container image (default: codecr.jlab.org/datascience/haidis-ips/nersc_base)
+#   --sagipsimage IMAGE  Container image (default: localhost/haidis-ips:dev)
 #   --ersapimage IMAGE   Container image (default: docker.io/gurjyan/haidis-dp:latest)
 #   --e2sarimage IMAGE   Container image (default: docker.io/ibaldin/e2sar:0.3.1)
 #   --gpus-per-node N    Number of GPUs per node (default: 4)
@@ -39,10 +39,11 @@ set -euo pipefail
 # Parse command-line arguments
 #=============================================================================
 
-SAGIPSIMAGE="codecr.jlab.org/datascience/haidis-ips/nersc_base"
+SAGIPSIMAGE="localhost/haidis-ips:dev"
 ERSAPIMAGE="docker.io/gurjyan/haidis-dp:latest"
 E2SARIMAGE="docker.io/ibaldin/e2sar:0.3.1"
 GPUS_PER_NODE=4
+SAGIPS_REPO_ROOT="/global/cfs/cdirs/amsc016/haidis/haidis-ips"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -140,7 +141,7 @@ echo ""
 # Pre-create per-node output directories on the shared filesystem
 # so Hydra doesn't fail trying to create them inside the container
 for node in "${NODE_ARRAY[@]}"; do
-    mkdir -p "$SCRIPT_DIR/outputs/$node"
+    mkdir -p "$JOB_DIR/$node"
 done
 echo "Created per-node output directories"
 
@@ -189,6 +190,7 @@ echo "[\$(hostname)] ERSAP starting, receiver IP: \$RECEIVER_IP"
 
 timeout ${CONTAINER_TIMEOUT} podman-hpc run \
     --network=host --ipc=host --rm --group-add keep-groups \
+    --ulimit nofile=65536:65536 \
     -v ${SCRIPT_DIR}/ersap-data:/user_data \
     -e EJFAT_URI='${EJFAT_URI}' \
     -e RECV_IP=\$RECEIVER_IP \
@@ -233,12 +235,17 @@ srun --ntasks=${TOTAL_RANKS} \
          --ipc=host \
          --security-opt=label=disable \
          --gpus all \
-         -v ${SCRIPT_DIR}/outputs/${NODE_ARRAY[0]}:/app/outputs \
-         -v ${SCRIPT_DIR}/sagips.yaml:/app/src/haidis_ips/cfg/sagips.yaml:ro \
+	 --group-add keep-groups \
+         -v ${JOB_DIR}/${NODE_ARRAY[0]}:/app/outputs \
+	 -v "${SAGIPS_REPO_ROOT}/src":/app/src \
+	 -v "${SAGIPS_REPO_ROOT}/pyproject.toml":/app/pyproject.toml \
+	 -v "${SAGIPS_REPO_ROOT}/uv.lock":/app/uv.lock \
+	 -v "${SAGIPS_REPO_ROOT}/README.md":/app/README.md \
+	 -v "${SAGIPS_REPO_ROOT}/mock_sender":/app/mock_sender \
+	 -v "${SAGIPS_REPO_ROOT}/scripts":/app/scripts \
+	 --env-file "${SAGIPS_REPO_ROOT}/.env" \
          ${SAGIPSIMAGE} \
-         uv run /app/src/haidis_ips/dalitz_shmem_workflow.py \
-           -cn sagips \
-           hydra.run.dir=/app/outputs/hydra
+	 bash -c /app/scripts/perlmutter_cmd.sh
 
 SAGIPS_EXIT=$?
 echo "SAGIPS srun completed with exit code $SAGIPS_EXIT"
