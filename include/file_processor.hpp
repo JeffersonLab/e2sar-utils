@@ -13,6 +13,8 @@
 struct CommandLineArgs {
     std::string tree_name;
     std::vector<std::string> file_paths;
+    std::string  dir_path;            // directory to scan for *.root files (alt to file_paths)
+    uint32_t     parallel_streams{4}; // max concurrent file streams; 4 is the CLI default
     // E2SAR sending options
     bool send_data = false;
     std::string ejfat_uri;

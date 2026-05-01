@@ -17,6 +17,8 @@
 #   --bufsize N        Batch size in MB (default: 1)
 #   --mtu N            MTU size (default: 9000)
 #   --files N          Number of parallel file streams (default: 2; same file repeated N times)
+#   --parallel N       Max concurrent file streams passed to --parallel (default: 4)
+#   --dir-mode         Use --dir + --parallel instead of positional file list
 #   --dataid N         Data ID passed to E2SAR Segmenter (default: 0)
 #   --rate R           Send rate in Gbps passed to Segmenter (default: -1.0 = no limit)
 #   --numsocks N       Number of Segmenter send sockets (default: 4)
@@ -30,6 +32,9 @@ TIMEOUT=30
 BUFSIZE_MB=1
 MTU=9000
 NUM_FILES=2
+PARALLEL=4
+DIR_MODE=false
+LINK_DIR=""
 DATAID=0
 RATE=-1.0
 NUM_SOCKS=4
@@ -75,6 +80,11 @@ cleanup() {
     if [[ -n "$RECV_PID" ]] && kill -0 "$RECV_PID" 2>/dev/null; then
         kill -INT "$RECV_PID" 2>/dev/null || true
         wait "$RECV_PID" 2>/dev/null || true
+    fi
+
+    # Remove symlink dir created for --dir-mode
+    if [[ -n "$LINK_DIR" ]]; then
+        rm -rf "$LINK_DIR" 2>/dev/null || true
     fi
 
     # Remove event files
@@ -129,6 +139,14 @@ while [[ $# -gt 0 ]]; do
             NUM_SOCKS="$2"
             shift 2
             ;;
+        --parallel)
+            PARALLEL="$2"
+            shift 2
+            ;;
+        --dir-mode)
+            DIR_MODE=true
+            shift
+            ;;
         --help)
             usage
             ;;
@@ -175,6 +193,8 @@ echo "  Executable:  $EXECUTABLE"
 echo "  Test data:   $TEST_DATA"
 echo "  Tree:        $TREE_NAME"
 echo "  Files:       $NUM_FILES"
+echo "  Parallel:    $PARALLEL"
+echo "  Dir mode:    $DIR_MODE"
 echo "  Batch size:  $BUFSIZE_MB MB"
 echo "  MTU:         $MTU"
 echo "  Rate:        $RATE Gbps"
@@ -209,8 +229,20 @@ if ! kill -0 "$RECV_PID" 2>/dev/null; then
 fi
 
 # Start sender
-log_info "Starting sender with $NUM_FILES file(s) in parallel..."
+log_info "Starting sender with $NUM_FILES file(s), $PARALLEL at a time..."
 cd "$PROJECT_ROOT"
+
+if [[ "$DIR_MODE" == "true" ]]; then
+    # Create a temp dir of symlinks so --dir mode can be exercised
+    LINK_DIR=$(mktemp -d)
+    for ((i=0; i<NUM_FILES; i++)); do
+        ln -s "$TEST_DATA" "$LINK_DIR/file_$(printf '%03d' $i).root"
+    done
+    SEND_FILE_ARGS="--dir $LINK_DIR"
+    log_info "Dir mode: created $NUM_FILES symlink(s) in $LINK_DIR"
+else
+    SEND_FILE_ARGS="$FILE_ARGS"
+fi
 
 "$EXECUTABLE" "--$SCHEMA" -s \
     -u "$EJFAT_URI" \
@@ -220,7 +252,8 @@ cd "$PROJECT_ROOT"
     --dataid "$DATAID" \
     --rate "$RATE" \
     --numsocks "$NUM_SOCKS" \
-    $FILE_ARGS \
+    --parallel "$PARALLEL" \
+    $SEND_FILE_ARGS \
     > "$SEND_LOG" 2>&1
 
 SEND_EXIT=$?
