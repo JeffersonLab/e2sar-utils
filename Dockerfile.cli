@@ -201,6 +201,12 @@ COPY . ${WORKDIR}/
 # When a bind-mount is provided the host directory takes precedence.
 RUN mkdir -p /user_data && chmod 1777 /user_data
 
+# Raise the per-process file-descriptor limit so all processes (Java, ET, etc.)
+# can open enough files. prlimit in entrypoint.sh raises the soft limit at runtime;
+# limits.conf raises the hard limit for any PAM-authenticated session as a fallback.
+RUN echo "* soft nofile 65536" >> /etc/security/limits.conf && \
+    echo "* hard nofile 65536" >> /etc/security/limits.conf
+
 # Copy and set up entrypoint script
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

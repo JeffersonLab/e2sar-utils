@@ -222,6 +222,7 @@ echo "=========================================="
 echo "All systems initialized. Starting ERSAP..."
 echo "=========================================="
 
-# Use exec to replace this shell with ERSAP, making it PID 1
-# This ensures proper signal handling (SIGTERM, etc.)
-exec ersap-shell "${ERSAP_SCRIPT}"
+# Use exec to replace this shell with ERSAP, making it PID 1.
+# prlimit sets the fd limit directly on the child process (nofile soft=hard=65536)
+# regardless of what the calling shell's soft limit happened to be.
+exec prlimit --nofile=65536:65536 ersap-shell "${ERSAP_SCRIPT}"
