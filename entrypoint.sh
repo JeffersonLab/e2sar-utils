@@ -101,7 +101,23 @@ if [ ! -d "${ERSAP_USER_DATA}" ]; then
 fi
 echo "✓ ERSAP_USER_DATA: ${ERSAP_USER_DATA}"
 
-# Step 4: Start ET system in background
+# Step 4: Kill any stale processes from previous runs before starting fresh.
+# Because --network=host shares the host network namespace, orphaned processes
+# from prior container runs stay alive, hold ports, and consume file descriptors.
+echo "----------------------------------------"
+echo "Cleaning up stale processes from previous runs..."
+pkill -f ersap-et-receiver 2>/dev/null && echo "  killed stale ersap-et-receiver" || true
+pkill -f et_start          2>/dev/null && echo "  killed stale et_start"          || true
+pkill -f ersap-shell       2>/dev/null && echo "  killed stale ersap-shell"       || true
+pkill -f "java.*clara"     2>/dev/null && echo "  killed stale clara java"        || true
+if [ -f "${ERSAP_HOME}/bin/kill_dpe.sh" ]; then
+    "${ERSAP_HOME}/bin/kill_dpe.sh" 2>/dev/null || true
+    echo "  kill_dpe.sh completed"
+fi
+sleep 2
+echo "✓ Stale process cleanup done"
+
+# Step 5: Start ET system in background
 echo "----------------------------------------"
 echo "Starting ET system..."
 ET_START_CMD="et_start -f /tmp/et_sys -v -d -n 1000 -s 2097152 -p 23911"
@@ -184,16 +200,6 @@ if ! kill -0 ${RECEIVER_PID} 2>/dev/null; then
 fi
 
 echo "✓ ersap-et-receiver is running"
-
-# Step 6: Kill any stale DPE processes before starting fresh
-echo "----------------------------------------"
-echo "Cleaning up stale DPE processes..."
-if [ -f "${ERSAP_HOME}/bin/kill_dpe.sh" ]; then
-    "${ERSAP_HOME}/bin/kill_dpe.sh"
-    echo "✓ kill_dpe.sh completed"
-else
-    echo "WARNING: ${ERSAP_HOME}/bin/kill_dpe.sh not found, skipping"
-fi
 
 # Step 7: Start ERSAP in foreground (as PID 1 for proper signal handling)
 echo "----------------------------------------"
