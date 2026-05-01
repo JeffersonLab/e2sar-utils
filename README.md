@@ -1,122 +1,107 @@
-# e2sar-utils
+# ERSAP Data Processing Pipeline README
 
-A C++ utility library for e2sar project.
+Welcome! This project provides a streaming data processing pipeline built on **ERSAP**, integrating **EJFAT reassembly**, **shared memory transport**, and a **reactive actor-based processing model**. 
+It is designed for high-throughput environments such as HPC systems, with deployment handled through a containerized workflow.
 
-## Dependencies
+This README will guide you through:
+- How the pipeline is structured  
+- How to configure key actors  
+- How to run the system using the `haidis-dp` container  
+- Useful HPC commands for working in this environment  
 
-### Build Dependencies
-- C++17 compatible compiler
-- Meson build system (>= 0.55.0)
-- Boost (>= 1.89.0)
-- pthreads
+---
 
-### Runtime Dependencies
-- gRPC (>= 1.74.1)
-- Protocol Buffers
+## Overview
+# ERSAP Data Processing Pipeline
 
-## Building
+Welcome! This project provides a streaming data processing pipeline built on **ERSAP**, integrating **EJFAT reassembly**, **shared memory transport**, and a **reactive actor-based processing model**.
 
-# ROOT stup
-source env.sh
+It is designed for high-throughput environments such as HPC systems, with deployment handled through a containerized workflow.
 
-```bash
-# Configure the build
-meson setup build/
+---
 
-# Compile
-meson compile -C build/
+## Overview
 
-# Run tests (if enabled)
-meson test -C build/
+The pipeline consists of several coordinated components:
 
-# Install
-meson install -C build/
-```
+- **EJFAT Reassembly**  
+  Reconstructs incoming data streams into complete events.
 
-## Build Options
+- **ERSAP Shared Memory Handling**  
+  Enables efficient inter-process communication using shared memory buffers.
 
-### Available Options
+- **Reactive Actor-Based Processing Pipeline**  
+  Data flows through modular actors that process, transform, and forward events.
 
-- `enable_tests`: Build and run tests (default: true)
-- `enable_examples`: Build example programs (default: false)
-- `enable_docs`: Build documentation (default: false)
+All components are orchestrated inside the **`haidis-dp` container**, ensuring consistent deployment across systems.
 
-### Setting Options
+---
 
-**During initial setup:**
-```bash
-meson setup build/ -Denable_tests=false -Denable_examples=true
-```
+## Configuration
 
-**After setup (reconfigure existing build):**
-```bash
-meson configure build/ -Denable_tests=false -Denable_examples=true
-```
+ERSAP actors are configured via a YAML file:
 
-**View all options and current values:**
-```bash
-meson configure build/
-```
 
-**Common built-in Meson options:**
-```bash
-# Change build type (debug, debugoptimized, release)
-meson setup build/ -Dbuildtype=release
+/global/cfs/cdirs/amsc016/ersap-data/config/services.yaml
 
-# Change C++ standard
-meson setup build/ -Dcpp_std=c++20
+Note that $ERSAP_USER_DATA points to /global/cfs/cdirs/amsc016/ersap-data
+There re two env variables set in the env.sh that is sourced by the entrypoint.sh, these are:
+$ERSAP_HOME and $ERSAP_USER_DATA. This are hard coded and is part of the docker image.
 
-# Combine multiple options
-meson setup build/ -Dbuildtype=release -Denable_tests=false -Dcpp_std=c++20
-```
 
-After reconfiguring, recompile with:
-```bash
-meson compile -C build/
-```
+Below are examples of how to configure the two main actors used in this pipeline.
 
-## Project Structure
+---
 
-```
-.
-├── include/       # Public headers
-├── src/          # Source files
-├── tests/        # Unit tests
-├── docs/         # Documentation
-└── build/        # Build directory (generated)
-```
+## HaidisGluexActor
 
-## Running
-Here are the command-line instructions for running the HAIDIS back-end components 
-(i.e., the software components downstream of the EJFAT load balancer). 
-The first example shows how to run them natively, without using a container.
+This actor connects to an ET system and consumes events.
 
-#### Native
+### Example
 
-##### Setup the environment
-```
-source env.sh
+```yaml
+- name: HaidisGluexActor
+  class: org.jlab.ersap.actor.HaidisGluexActor
+  properties:
+    et_filename: "/tmp/et_sys"
+    et_host: "localhost"
+    et_port: 11111
+    station_name: "ERSAP_STATION"
+    verbose: true
+**Parameters**
+	et_filename — Path to the ET system file
+	et_host — Host where the ET system is running
+	et_port — Port number for ET connection
+	station_name — Name of the ET station
+	verbose — Enable detailed logging
 
-```
+#### HaidisGluexLinkActor
 
-##### Start ET
+This actor writes processed data into shared memory.
 
-```
-et_start -f /tmp/et_sys -v -d -n 1000 -s 2097152 -p 23911
+Example
+- name: HaidisGluexLinkActor
+  class: org.jlab.ersap.actor.HaidisGluexLinkActor
+  properties:
+    verbose: true
+    shm_write: true
+    data_id: 1
+    shm_name: "ersap_shm"
+    sem_name: "ersap_sem"
+    ack_sem_name: "ersap_ack_sem"
+    shm_size: 1048576
+**Parameters**
+	verbose — Enable detailed logging
+	shm_write — Enable shared memory writing
+	data_id — Data stream identifier
+	shm_name — Shared memory name
+	sem_name — Synchronization semaphore
+	ack_sem_name — Acknowledgment semaphore
+	shm_size — Shared memory size (bytes)
 
-```
-##### Start ET receiver
+#### Running with haidis-dp Container
 
-```
-./ersap-et-receiver -u $EJFAT_URI --withcp -v --recv-ip 129.57.177.8 --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys
-
-```
-##### Start ERSAP
-
-```
-$ERSAP_HOME/bin/ersap-shell haidis.ersap
-
-```
+The pipeline is deployed using the haidis-dp container via podman-hpc.
 
 ### Docker image
 
@@ -126,13 +111,14 @@ $ERSAP_HOME/bin/ersap-shell haidis.ersap
 docker build --target deploy -t haidis-dp:latest -f Dockerfile.cli .
 ```
 
-#### Running Docker image
-Note: The environment variables EJFA_URI (the reserved load balancer instance) and 
-RECV_IP (the network interface where incoming data packets are expected) 
+#### Running Docker image locally at JLAB
+Note: The environment variables EJFA_URI (the reserved load balancer instance)
 must be properly set before running the application.
 
 ```
-docker run -it --network=host --entrypoint /bin/bash -e EJFAT_URI=$EJFAT_URI -e RECV_IP=$RECV_IP haidis-dp:latest
+docker run -it --network=host --entrypoint
+ /bin/bash -v $ERSAP_USER_DATA:/user_data -e EJFAT_URI=$EJFAT_URI -e RECV_IP=$RECV_IP haidis-dp:latest
+
 ```
 
 #### Pushing the docker image to docker hub
@@ -141,7 +127,61 @@ docker login
 docker tag haidis-dp:latest gurjyan/haidis-dp:latest
 docker push gurjyan/haidis-dp:latest
 ```
+#### Pulling and running docker image on Perlmutter
 
-## License
+```
+podman-hpc pull docker.io/gurjyan/haidis-dp:latest
 
-TBD
+podman-hpc run -it --network=host --group-add keep-groups --entrypoint /bin/bash -v /global/cfs/cdirs/amsc016/haidis/ersap-data:/user_data -e EJFAT_URI=$EJFAT_URI  haidis-dp:latest
+
+```
+#### Find the project numbers
+sacctmgr -p show assoc where user=$USER format=Account,Cluster,QOS
+
+#### Reserve a node
+salloc -N 1 -C cpu -q interactive -t 01:00:00 -A m3792
+
+#### common project specific scratch
+/global/cfs/cdirs/m3792/haidis/sbatch
+or
+/global/cfs/cdirs/amsc016/haidis/sbatch
+
+
+### HPC Environment Tips
+
+**Check Project Allocations**
+	sacctmgr show assoc user=$USER format=Account,User
+
+**Allocate Compute Nodes**
+	salloc -A <project> -N 1 -t 01:00:00
+
+**Alternative (system dependent):**
+
+	alloc -A <project> -N 1 -t 01:00:00
+
+**Common Directory Paths**
+
+Global storage
+
+	/global/cfs/cdirs/amsc016/
+
+Scratch space
+
+	/pscratch/sd/<first_letter>/<username>/
+
+#### Workflow Summary
+
+	Configure actors in services.yaml
+	Allocate HPC resources (if needed)
+	Run the container using podman-hpc
+	Monitor logs (enable verbose mode if needed)
+	Tune parameters (threads, shared memory size, etc.)
+
+#### Notes
+	Start with verbose: true during testing
+	Ensure shared memory size matches expected data rate
+	Use interactive mode for debugging
+	Keep configuration files under version control
+
+This pipeline is designed to be flexible and modular, so feel free to extend it with additional actors or optimizations as needed.
+

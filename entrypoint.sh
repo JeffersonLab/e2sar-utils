@@ -107,7 +107,7 @@ ET_PID=$!
 echo "✓ ET started with PID: ${ET_PID}"
 
 # Give ET a moment to initialize
-sleep 2
+sleep 3
 
 # Check if ET is still running
 if ! kill -0 ${ET_PID} 2>/dev/null; then
@@ -121,59 +121,85 @@ echo "✓ ET is running"
 echo "----------------------------------------"
 echo "Starting ersap-et-receiver..."
 
-# Determine the receiver IP address
-# IMPORTANT: Docker networking constraints
-# - Bridge mode: Container MUST bind to 0.0.0.0 (cannot bind to host IP from inside container)
-# - Host mode: Can bind to actual host IPs
+# Determine receiver IP address
 #
 # Priority:
-# 1. Use RECV_IP environment variable if set
-# 2. Detect Docker bridge networking and use 0.0.0.0 (bind to all interfaces)
-# 3. Try to detect primary routable IP via default route (host networking)
+# 1. Use RECV_IP if explicitly set
+# 2. Extract sender IPv4 from ERSAP_URI data=<IPv4>
+# 3. Use routing decision to that sender IPv4
+# 4. Fall back to default route
+# 5. Fall back to hostname -I, avoiding Docker bridge IPs
 
 if [ -n "${RECV_IP:-}" ]; then
     echo "✓ Using RECV_IP from environment: ${RECV_IP}"
 else
-    # Detect if we're in Docker bridge networking
-    # Check for Docker bridge IP (172.17.x.x, 172.18.x.x) or /.dockerenv file
-    IS_DOCKER_BRIDGE=false
+    SENDER_IP=""
 
-    if [ -f /.dockerenv ]; then
-        # We're definitely in a container
-        # Check if we have a Docker bridge IP (172.17.x.x, etc.)
-        if hostname -I 2>/dev/null | grep -qE '172\.(1[67]|18)\.[0-9]+\.[0-9]+'; then
-            IS_DOCKER_BRIDGE=true
-        fi
+    # Extract first IPv4 address after data=
+    # Example:
+    # ...&data=192.188.29.54&data=[2001:400:a300::54]
+    if [ -n "${ERSAP_URI:-}" ]; then
+        SENDER_IP=$(printf '%s\n' "$ERSAP_URI" | \
+            grep -oE 'data=[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | \
+            head -n 1 | cut -d= -f2)
     fi
 
-    if [ "$IS_DOCKER_BRIDGE" = true ]; then
-        # In Docker bridge mode: bind to 0.0.0.0 to accept traffic on all interfaces
-        RECV_IP="0.0.0.0"
-        echo "✓ Detected Docker bridge networking, binding to 0.0.0.0 (all interfaces)"
-        echo "  Note: Ensure you map ports with -p 10000:10000/udp when running container"
-    else
-        # Not in bridge mode (or in host networking): try to find the actual IP
-        # This asks: "What source IP would I use to reach the internet?"
-        RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || true)
+    if [ -n "$SENDER_IP" ]; then
+        echo "✓ Extracted sender IPv4 from ERSAP_URI: ${SENDER_IP}"
 
-        # If that didn't work, try hostname -I
-        if [ -z "${RECV_IP}" ]; then
-            RECV_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-        fi
-
-        if [ -z "${RECV_IP}" ]; then
-            echo "ERROR: Could not determine receiver IP address"
-            echo ""
-            echo "Please set RECV_IP environment variable:"
-            echo "  docker run -e RECV_IP=<ip-address> -e EJFAT_URI=<uri> ..."
-            echo ""
-            echo "Use 0.0.0.0 for Docker bridge mode, or specific IP for host networking"
-            exit 1
-        fi
-
-        echo "✓ Auto-detected receiver IP: ${RECV_IP}"
+        RECV_IP=$(ip route get "$SENDER_IP" 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "src") {
+                        print $(i+1)
+                        exit
+                    }
+                }
+            }
+        ')
     fi
+
+    # Fallback: use default outbound route
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(ip route get 1.1.1.1 2>/dev/null | awk '
+            {
+                for (i = 1; i <= NF; i++) {
+                    if ($i == "src") {
+                        print $(i+1)
+                        exit
+                    }
+                }
+            }
+        ')
+    fi
+
+    # Fallback: prefer NERSC-facing/public address if present
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep '^128\.55\.' | head -n 1)
+    fi
+
+    # Fallback: prefer 10.249.x.x over 10.100.x.x
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep '^10\.249\.' | head -n 1)
+    fi
+
+    # Last fallback: first non-Docker-bridge IPv4
+    if [ -z "${RECV_IP}" ]; then
+        RECV_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | \
+            grep -Ev '^172\.(1[6-9]|2[0-9]|3[0-1])\.' | \
+            grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
+            head -n 1)
+    fi
+
+    if [ -z "${RECV_IP}" ]; then
+        echo "ERROR: Could not determine receiver IP address"
+        echo "Please set RECV_IP manually."
+        exit 1
+    fi
+
+    echo "✓ Auto-detected receiver IP: ${RECV_IP}"
 fi
+
 
 RECEIVER_CMD="ersap-et-receiver -u ${EJFAT_URI} --withcp -v --recv-ip ${RECV_IP} --recv-port 10000 --recv-threads 8 --et-file /tmp/et_sys"
 echo "Command: ${RECEIVER_CMD}"

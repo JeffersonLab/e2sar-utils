@@ -51,7 +51,7 @@ if(_IMPORT_PREFIX STREQUAL "/")
 endif()
 
 # Create imported target shmem_writer::shmem_writer
-add_library(shmem_writer::shmem_writer STATIC IMPORTED)
+add_library(shmem_writer::shmem_writer SHARED IMPORTED)
 
 set_target_properties(shmem_writer::shmem_writer PROPERTIES
   INTERFACE_INCLUDE_DIRECTORIES "${_IMPORT_PREFIX}/include"

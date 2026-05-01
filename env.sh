@@ -2,7 +2,5 @@
 
 # ERSAP runtime paths (not defined in Dockerfile)
 export ERSAP_HOME=$(pwd)/ersap
-export ERSAP_USER_DATA=$(pwd)/ersap-data
-
-# ROOT environment — uncomment if ROOT runtime vars are needed outside the compile stage
+export ERSAP_USER_DATA=/global/cfs/cdirs/amsc016/haidis/ersap-data
 # source /rootlib/root/bin/thisroot.sh
