@@ -25,16 +25,16 @@ def parse_args(argv=None):
         description="Submit a SLURM job to NERSC Perlmutter via the IRI API.",
         epilog=(
             "Examples:\n"
-            '  iri-run -A m1234 -- echo "hello from perlmutter"\n'
-            "  iri-run -A m1234 -q debug -C gpu -t 10 -N 2 --wait -- python my_script.py\n"
-            '  iri-run -A m1234 --env MY_VAR=foo -- bash -c "echo $MY_VAR"\n'
+            '  iri-run -A myproject -- echo "hello from perlmutter"\n'
+            "  iri-run -A myproject -q debug -C gpu -t 10 -N 2 --wait -- python my_script.py\n"
+            '  iri-run -A myproject --env MY_VAR=foo -- bash -c "echo $MY_VAR"\n'
             "\n"
             "Authentication:\n"
             "  On first run, you will be prompted to log in via Globus."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("-A", "--account", default="amsc016", help="SLURM account/project (default: amsc016)")
+    parser.add_argument("-A", "--account", default="myproject", help="SLURM account/project (default: myproject)")
     parser.add_argument("-q", "--qos", default="cron", help="Quality of service (default: cron)")
     parser.add_argument("-C", "--constraint", default="cron", help="Node constraint (default: cron)")
     parser.add_argument("-t", "--time", type=int, default=30, dest="time_minutes", help="Wall time in minutes (default: 30)")

@@ -5,10 +5,10 @@ from iri_run.bash import _build_run_payload, _job_dir, parse_args
 
 class TestJobDir:
     def test_default_account(self):
-        assert _job_dir("amsc016", "abc123") == "/global/cfs/cdirs/amsc016/iri-bash/abc123"
+        assert _job_dir("myproject", "abc123") == "/global/cfs/cdirs/myproject/iri-bash/abc123"
 
     def test_other_account(self):
-        assert _job_dir("m3792", "xyz") == "/global/cfs/cdirs/m3792/iri-bash/xyz"
+        assert _job_dir("testproj", "xyz") == "/global/cfs/cdirs/testproj/iri-bash/xyz"
 
 
 class TestBuildRunPayload:
@@ -32,17 +32,17 @@ class TestBuildRunPayload:
     def test_directory(self):
         args = parse_args(["echo"])
         payload = _build_run_payload(args, "abc123", "echo")
-        assert payload["directory"] == "/global/cfs/cdirs/amsc016/iri-bash/abc123"
+        assert payload["directory"] == "/global/cfs/cdirs/myproject/iri-bash/abc123"
 
     def test_stdout_path(self):
         args = parse_args(["echo"])
         payload = _build_run_payload(args, "abc123", "echo")
-        assert payload["stdout_path"] == "/global/cfs/cdirs/amsc016/iri-bash/abc123/stdout"
+        assert payload["stdout_path"] == "/global/cfs/cdirs/myproject/iri-bash/abc123/stdout"
 
     def test_stderr_path(self):
         args = parse_args(["echo"])
         payload = _build_run_payload(args, "abc123", "echo")
-        assert payload["stderr_path"] == "/global/cfs/cdirs/amsc016/iri-bash/abc123/stderr"
+        assert payload["stderr_path"] == "/global/cfs/cdirs/myproject/iri-bash/abc123/stderr"
 
     def test_resources_no_node_count(self):
         args = parse_args(["echo"])
@@ -73,13 +73,13 @@ class TestBuildRunPayload:
     def test_account_default(self):
         args = parse_args(["echo"])
         payload = _build_run_payload(args, "abc123", "echo")
-        assert payload["attributes"]["account"] == "amsc016"
+        assert payload["attributes"]["account"] == "myproject"
 
     def test_account_custom(self):
-        args = parse_args(["-A", "m3792", "echo"])
+        args = parse_args(["-A", "testproj", "echo"])
         payload = _build_run_payload(args, "abc123", "echo")
-        assert payload["attributes"]["account"] == "m3792"
-        assert "/m3792/" in payload["directory"]
+        assert payload["attributes"]["account"] == "testproj"
+        assert "/testproj/" in payload["directory"]
 
     def test_multiline_script(self):
         script = "module load python; python my_script.py"

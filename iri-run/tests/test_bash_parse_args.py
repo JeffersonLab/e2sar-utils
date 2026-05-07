@@ -10,7 +10,7 @@ class TestRunDefaults:
 
     def test_account_default(self):
         args = parse_args(["echo", "hi"])
-        assert args.account == "amsc016"
+        assert args.account == "myproject"
 
     def test_time_default(self):
         args = parse_args(["echo"])
@@ -33,12 +33,12 @@ class TestRunOptions:
     """Verify run options can be overridden."""
 
     def test_account(self):
-        args = parse_args(["-A", "m3792", "echo"])
-        assert args.account == "m3792"
+        args = parse_args(["-A", "testproj", "echo"])
+        assert args.account == "testproj"
 
     def test_account_long(self):
-        args = parse_args(["--account", "m3792", "echo"])
-        assert args.account == "m3792"
+        args = parse_args(["--account", "testproj", "echo"])
+        assert args.account == "testproj"
 
     def test_time(self):
         args = parse_args(["-t", "60", "echo"])
@@ -73,8 +73,8 @@ class TestRunCommand:
         assert args.command == ["for i in 1 2 3; do echo $i; done"]
 
     def test_options_before_command(self):
-        args = parse_args(["-A", "m3792", "-t", "10", "echo", "hi"])
-        assert args.account == "m3792"
+        args = parse_args(["-A", "testproj", "-t", "10", "echo", "hi"])
+        assert args.account == "testproj"
         assert args.time_minutes == 10
         assert args.command == ["echo", "hi"]
 
@@ -101,11 +101,11 @@ class TestReapSubcommand:
         assert args.uuid == "abc123def456"
 
     def test_reap_with_account(self):
-        args = parse_args(["reap", "-A", "m3792", "abc123"])
+        args = parse_args(["reap", "-A", "testproj", "abc123"])
         assert args.subcommand == "reap"
-        assert args.account == "m3792"
+        assert args.account == "testproj"
         assert args.uuid == "abc123"
 
     def test_reap_default_account(self):
         args = parse_args(["reap", "abc123"])
-        assert args.account == "amsc016"
+        assert args.account == "myproject"

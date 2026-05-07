@@ -44,12 +44,12 @@ class TestBasicPayload:
     def test_account_default(self):
         args = parse_args(["--", "echo"])
         payload = build_payload(args)
-        assert payload["attributes"]["account"] == "amsc016"
+        assert payload["attributes"]["account"] == "myproject"
 
     def test_account_custom(self):
-        args = parse_args(["-A", "m3792", "--", "echo"])
+        args = parse_args(["-A", "testproj", "--", "echo"])
         payload = build_payload(args)
-        assert payload["attributes"]["account"] == "m3792"
+        assert payload["attributes"]["account"] == "testproj"
 
 
 class TestJobName:
@@ -77,18 +77,18 @@ class TestOutputPaths:
     def test_stdout_path(self):
         args = parse_args(["--", "echo"])
         payload = build_payload(args, job_id_hint="abc123")
-        assert payload["stdout_path"] == "/global/cfs/cdirs/amsc016/iri-run/abc123.out"
+        assert payload["stdout_path"] == "/global/cfs/cdirs/myproject/iri-run/abc123.out"
 
     def test_stderr_path(self):
         args = parse_args(["--", "echo"])
         payload = build_payload(args, job_id_hint="abc123")
-        assert payload["stderr_path"] == "/global/cfs/cdirs/amsc016/iri-run/abc123.err"
+        assert payload["stderr_path"] == "/global/cfs/cdirs/myproject/iri-run/abc123.err"
 
     def test_paths_use_account(self):
-        args = parse_args(["-A", "m3792", "--", "echo"])
+        args = parse_args(["-A", "testproj", "--", "echo"])
         payload = build_payload(args, job_id_hint="xyz")
-        assert "/m3792/" in payload["stdout_path"]
-        assert "/m3792/" in payload["stderr_path"]
+        assert "/testproj/" in payload["stdout_path"]
+        assert "/testproj/" in payload["stderr_path"]
 
     def test_paths_with_default_hint(self):
         args = parse_args(["--", "echo"])

@@ -104,11 +104,11 @@ class TestCmdRunOptions:
              patch("iri_run.bash.poll_job", return_value=0), \
              patch("iri_run.bash.remove_remote_path"), \
              pytest.raises(SystemExit):
-            main(["-A", "m3792", "echo"])
+            main(["-A", "testproj", "echo"])
 
         payload = mock_submit.call_args[0][1]
-        assert payload["attributes"]["account"] == "m3792"
-        assert "/m3792/" in payload["directory"]
+        assert payload["attributes"]["account"] == "testproj"
+        assert "/testproj/" in payload["directory"]
 
     def test_custom_time(self):
         with patch("iri_run.bash.load_token", return_value="tok"), \
@@ -188,8 +188,8 @@ class TestCmdReap:
         with patch("iri_run.bash.load_token", return_value="tok"), \
              patch("iri_run.bash.read_file_chunk", return_value=None) as mock_read, \
              patch("iri_run.bash.remove_remote_path"):
-            main(["reap", "-A", "m3792", "myuuid"])
+            main(["reap", "-A", "testproj", "myuuid"])
 
         read_paths = [c[0][1] for c in mock_read.call_args_list]
-        assert any("/m3792/iri-bash/myuuid/stdout" in p for p in read_paths)
-        assert any("/m3792/iri-bash/myuuid/stderr" in p for p in read_paths)
+        assert any("/testproj/iri-bash/myuuid/stdout" in p for p in read_paths)
+        assert any("/testproj/iri-bash/myuuid/stderr" in p for p in read_paths)

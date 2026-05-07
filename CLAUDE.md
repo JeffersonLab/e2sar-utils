@@ -44,7 +44,7 @@ meson configure build/
   - Classes: TFile, TTree, TLorentzVector, TVector3
 - **gRPC** (≥1.74.1) and **Protocol Buffers**: For E2SAR communication
 - **E2SAR** (≥0.1.5): EJFAT Event Segmentation And Reassembly
-  - Installed location: `/Users/baldin/workspaces/workspace-ejfat/e2sar-install`
+  - Installed location: `<your-workspace>/e2sar-install` (set via `PKG_CONFIG_PATH`)
   - Project links against libe2sar.a
   - Requires: Boost.URL, Boost.Log, Boost.Thread, Boost.Chrono
 
@@ -226,11 +226,11 @@ Located in `iri-run/`. A Python package providing two CLI tools for submitting a
 - **Resource ID**: `perlmutter` for all Perlmutter endpoints.
 - **Preferred QOS for automation**: `cron` (login node, free, 24h max) or `workflow` (1/4 login node, 90-day max).
 
-### Key NERSC Conventions (amsc016 project)
+### Key NERSC Conventions
 
-- **Account**: `amsc016` (default), `m3792` (GPU interactive)
-- **Working dir**: `/global/cfs/cdirs/amsc016/haidis/`
-- **Job logs**: `/global/cfs/cdirs/amsc016/haidis/runs/slurm-<ID>.out/.err`
+- **Account**: pass via `-A <your-account>`; the default placeholder `myproject` must be overridden
+- **Working dir**: `/global/cfs/cdirs/<your-account>/<project-dir>/`
+- **Job logs**: `/global/cfs/cdirs/<your-account>/<project-dir>/runs/slurm-<ID>.out/.err`
 - Do **not** use `/tmp` — it is node-local and unreliable behind API fanout.
 
 ### Build and Test

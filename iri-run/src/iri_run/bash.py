@@ -24,7 +24,7 @@ from iri_run.api import (
     submit_job,
 )
 
-DEFAULT_ACCOUNT = "amsc016"
+DEFAULT_ACCOUNT = "myproject"
 DEFAULT_TIME_MINUTES = 30
 CFS_BASE = "/global/cfs/cdirs"
 
