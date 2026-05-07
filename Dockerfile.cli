@@ -128,7 +128,7 @@ COPY . /src/
 # 3. Fix C++ standard flag conflict (ROOT uses newer standard)
 # 4. Compile with meson
 # 5. Install to E2SARINSTALL prefix
-RUN cd ${ROOT_INSTALL}/root/bin && \
+RUN bash -c 'cd ${ROOT_INSTALL}/root/bin && \
     . ./thisroot.sh && \
     cd ${SRC_DIR} && \
     PATH=$HOME/.local/bin:/usr/local/bin:$PATH \
@@ -137,7 +137,7 @@ RUN cd ${ROOT_INSTALL}/root/bin && \
     meson setup -Dpkg_config_path=${PKG_CONFIG_PATH} --prefix ${E2SARINSTALL} build && \
     sed -i 's/-std=c++11//g' build/build.ninja && \
     meson compile -C build -j 2 && \
-    meson install -C build
+    meson install -C build'
 
 #
 # Stage 'deploy': Final slim production image
