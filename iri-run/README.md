@@ -64,7 +64,7 @@ back to your terminal.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-A`, `--account` | `amsc016` | SLURM account/project |
+| `-A`, `--account` | `myproject` | SLURM account/project |
 | `-t`, `--time` | `30` | Wall time in minutes |
 | `--no-wait` | | Submit and exit immediately (prints job UUID) |
 | `-f`, `--file` | | Read script from a local file |
@@ -103,7 +103,7 @@ Lower-level tool for submitting arbitrary SLURM jobs with full control over
 job parameters. See `iri-run -h` for all options.
 
 ```bash
-iri-run -A m1234 -q debug -C gpu -t 10 -N 2 --wait -- python my_script.py
+iri-run -A myproject -q debug -C gpu -t 10 -N 2 --wait -- python my_script.py
 ```
 
 ---

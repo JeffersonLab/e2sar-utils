@@ -10,7 +10,7 @@ class TestDefaults:
 
     def test_account_default(self):
         args = parse_args(["--", "echo", "hi"])
-        assert args.account == "amsc016"
+        assert args.account == "myproject"
 
     def test_qos_default(self):
         args = parse_args(["--", "echo"])
@@ -53,12 +53,12 @@ class TestExplicitOptions:
     """Verify each flag overrides its default."""
 
     def test_account(self):
-        args = parse_args(["-A", "m3792", "--", "echo"])
-        assert args.account == "m3792"
+        args = parse_args(["-A", "testproj", "--", "echo"])
+        assert args.account == "testproj"
 
     def test_account_long(self):
-        args = parse_args(["--account", "m3792", "--", "echo"])
-        assert args.account == "m3792"
+        args = parse_args(["--account", "testproj", "--", "echo"])
+        assert args.account == "testproj"
 
     def test_qos(self):
         args = parse_args(["-q", "debug", "--", "echo"])
@@ -169,8 +169,8 @@ class TestCommandParsing:
             parse_args(["--"])
 
     def test_options_before_separator(self):
-        args = parse_args(["-A", "m1234", "-N", "2", "--", "bash", "-c", "echo hi"])
-        assert args.account == "m1234"
+        args = parse_args(["-A", "myproj", "-N", "2", "--", "bash", "-c", "echo hi"])
+        assert args.account == "myproj"
         assert args.nodes == 2
         assert args.command == ["bash", "-c", "echo hi"]
 
@@ -180,7 +180,7 @@ class TestCombinedOptions:
 
     def test_full_option_set(self):
         args = parse_args([
-            "-A", "m3792",
+            "-A", "testproj",
             "-q", "debug",
             "-C", "gpu",
             "-t", "10",
@@ -192,7 +192,7 @@ class TestCombinedOptions:
             "-w",
             "--", "srun", "hostname",
         ])
-        assert args.account == "m3792"
+        assert args.account == "testproj"
         assert args.qos == "debug"
         assert args.constraint == "gpu"
         assert args.time_minutes == 10

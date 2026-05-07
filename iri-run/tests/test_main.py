@@ -98,10 +98,10 @@ class TestMainPayloadContent:
         with patch("iri_run.cli.load_token", return_value="tok"), \
              patch("iri_run.cli.submit_job", return_value=("1", "OK")) as mock_submit, \
              patch("iri_run.cli.ensure_remote_dir"):
-            main(["-A", "m3792", "-q", "debug", "-N", "4", "--", "srun", "hostname"])
+            main(["-A", "testproj", "-q", "debug", "-N", "4", "--", "srun", "hostname"])
 
         payload = mock_submit.call_args[0][1]
-        assert payload["attributes"]["account"] == "m3792"
+        assert payload["attributes"]["account"] == "testproj"
         assert payload["attributes"]["custom_attributes"]["qos"] == "debug"
         assert payload["resources"]["node_count"] == 4
 

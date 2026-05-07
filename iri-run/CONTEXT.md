@@ -380,8 +380,8 @@ Key characteristics:
 ### CFS and Project Accounts
 
 Every NERSC project has a CFS directory at `/global/cfs/cdirs/<project_name>/`.
-The project name matches the SLURM account name (e.g., `amsc016` ->
-`/global/cfs/cdirs/amsc016/`).
+The project name matches the SLURM account name (e.g., `myproject` ->
+`/global/cfs/cdirs/myproject/`).
 
 **Important**: Do NOT use `/tmp` for output files -- it is local to each node
 and may differ among machines behind an API fanout.
@@ -413,10 +413,10 @@ PSI/J is a job management abstraction API for portability across HPC schedulers
 ## Project Context (haidis / e2sar-utils)
 
 The sibling project `../e2sar-utils` uses these NERSC conventions:
-- **Account**: `amsc016` (default), `m3792` (GPU interactive)
-- **Working dir**: `/global/cfs/cdirs/amsc016/haidis/`
-- **Job logs**: `/global/cfs/cdirs/amsc016/haidis/runs/slurm-<ID>.out/.err`
-- **sbatch script**: `/global/cfs/cdirs/amsc016/haidis/sbatch/haidis_slurm.sh`
+- **Account**: `<your-account>` (default CPU/login), `<gpu-account>` (GPU interactive)
+- **Working dir**: `/global/cfs/cdirs/<your-account>/haidis/`
+- **Job logs**: `/global/cfs/cdirs/<your-account>/haidis/runs/slurm-<ID>.out/.err`
+- **sbatch script**: `/global/cfs/cdirs/<your-account>/haidis/sbatch/haidis_slurm.sh`
 - **QOS**: `debug` (30-min limit), `cron`, `regular`
 - **Constraint**: `gpu` (for GPU nodes), `cpu`
 - **Container runtime**: `podman-hpc`
