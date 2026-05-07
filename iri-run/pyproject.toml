@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iri-run"
+version = "0.1.0"
+description = "Submit SLURM jobs to NERSC Perlmutter via the IRI API"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28",
+    "globus-sdk>=3.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+iri-run = "iri_run.cli:main"
+iri-bash = "iri_run.bash:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

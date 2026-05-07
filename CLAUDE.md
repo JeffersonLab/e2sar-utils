@@ -210,6 +210,40 @@ Key options: `--bufsize-mb` (batch size, default 10), `--mtu` (default 1500, max
 3. Add a mutually exclusive `--newschema` CLI flag in `bin/e2sar_root.cpp` and a `make_unique<NewSchemaFileProcessor>` branch in `main()`.
 4. Update `tests/test_loopback.sh` to handle the new `--newschema` option.
 
+## iri-run Subproject
+
+Located in `iri-run/`. A Python package providing two CLI tools for submitting and monitoring SLURM jobs on NERSC Perlmutter via the IRI (Integrated Research Infrastructure) REST API.
+
+### CLI Entry Points
+
+- **`iri-run`** (`iri_run/cli.py`): Full-control job submission. Accepts all PSI/J `JobSpec` parameters directly.
+- **`iri-bash`** (`iri_run/bash.py`): Simplified tool that wraps a shell command in `bash -c "..."` and submits it to the `cron` QOS on a login node. Creates a per-invocation working directory at `/global/cfs/cdirs/{account}/iri-bash/{uuid}/` for stdout/stderr capture. `iri-bash reap <uuid>` fetches output and removes the directory.
+
+### Architecture
+
+- **`api.py`**: Thin `requests`-based client over `https://api.iri.nersc.gov/api/v1`. All filesystem endpoints are async (return `TaskSubmitResponse`); the client polls `GET /task/{task_id}` until completion.
+- **Authentication**: Globus OAuth2. Tokens are read from the globus-cli SQLite DB at `~/.globus/cli/storage.db` using namespace `"userprofile/production"`. On first run, `load_token()` triggers `globus login` / `globus session consent` automatically.
+- **Resource ID**: `perlmutter` for all Perlmutter endpoints.
+- **Preferred QOS for automation**: `cron` (login node, free, 24h max) or `workflow` (1/4 login node, 90-day max).
+
+### Key NERSC Conventions (amsc016 project)
+
+- **Account**: `amsc016` (default), `m3792` (GPU interactive)
+- **Working dir**: `/global/cfs/cdirs/amsc016/haidis/`
+- **Job logs**: `/global/cfs/cdirs/amsc016/haidis/runs/slurm-<ID>.out/.err`
+- Do **not** use `/tmp` — it is node-local and unreliable behind API fanout.
+
+### Build and Test
+
+```bash
+cd iri-run/
+python3 -m venv e2sar-utils && . e2sar-utils/bin/activate
+pip install -e .          # installs iri-run and iri-bash CLI tools
+pytest tests/             # run the test suite
+```
+
+Dependencies: `requests>=2.28`, `globus-sdk>=3.0`, Python >= 3.9.
+
 ## Performance Characteristics
 
 ### Memory Usage
