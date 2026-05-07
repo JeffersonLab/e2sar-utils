@@ -1,6 +1,8 @@
 # e2sar-utils
 
-A C++ utility for reading particle physics ROOT files and streaming event data over the network via E2SAR segmentation. Can use simluated Dalitz or GlueX data and extract different types of physics events and send them on the wire. The receive end is for testing only - simply saves every EJFAT event (containing multiple physics events) into a file. 
+- A C++ utility (`e2sar_root`) for reading particle physics ROOT files and streaming event data over the network via E2SAR segmentation. Can use simluated Dalitz or GlueX data and extract different types of physics events and send them on the wire. The receive end is for testing only - simply saves every EJFAT event (containing multiple physics events) into a file. 
+- sbatch scripts to launch HAIDIS training
+- iri-run set of utilities to use IRI APIs to launch jobs on DOE resources
 
 ## Supported Event Schemas
 
@@ -11,7 +13,7 @@ A C++ utility for reading particle physics ROOT files and streaming event data o
 
 **Exactly one of `--toy` or `--gluex` is required** for any sender or read-only invocation.
 
-## Dependencies
+## e2sar_root Dependencies
 
 ### Build Dependencies
 - C++17 compatible compiler
@@ -25,7 +27,7 @@ A C++ utility for reading particle physics ROOT files and streaming event data o
 - ROOT (particle physics library)
 - E2SAR (>= 0.1.5)
 
-## Building
+## Building e2sar_root
 
 ```bash
 # Configure the build
@@ -41,7 +43,7 @@ meson test -C build/
 meson install -C build/
 ```
 
-## Usage
+## e2sar_root usage
 
 ```
 Sender (files): e2sar-root --toy|--gluex --tree <name> --send --uri <uri> [--parallel N] [OPTIONS] <file1.root> ...
@@ -116,7 +118,7 @@ Read-only:      e2sar-root --toy|--gluex --tree <name> [--dir <dir>] [<file.root
   -u "ejfat://..." --dir data/ --parallel 3 --rate 0.5
 ```
 
-## Testing
+## e2sar_root testing
 
 After making code changes, always run the loopback integration test:
 
@@ -154,7 +156,7 @@ The test script starts a receiver on the loopback interface, runs the sender, wa
 
 > **Note on UDP loss:** At uncapped rate (`--rate -1`), the loopback socket buffer can overflow and drop packets, causing reassembly failures. Use `--rate 0.5` for reliable loopback tests.
 
-## Build Options
+## e2sar_root Build Options
 
 ### Available Options
 
@@ -196,6 +198,16 @@ After reconfiguring, recompile with:
 meson compile -C build/
 ```
 
+## IRI-run
+
+A set of python utilities for launching and monitoring jobs on DOE resources via IRI APIs. More information in the [iri-run/README.md](iri-run/README.md). It has its own build and test structures.
+
+```bash
+cd iri-run/
+python3 -m venv e2sar-utils && . e2sar-utils/bin/activate
+pip install -e .
+```
+
 ## Project Structure
 
 ```
@@ -210,6 +222,14 @@ meson compile -C build/
 │   └── e2sar_root.cpp        # Signal handling, segmenter/reassembler init, main()
 ├── tests/                    # Integration tests and ROOT analysis macros
 │   └── README.md             # Per-file descriptions
+├── iri-run/                  # Python CLI tools for IRI API job submission (own build/tests)
+│   ├── src/iri_run/
+│   │   ├── api.py            # IRI REST API client (requests + Globus auth)
+│   │   ├── cli.py            # iri-run CLI entry point
+│   │   └── bash.py           # iri-bash CLI entry point
+│   ├── tests/                # pytest test suite
+│   ├── pyproject.toml        # Python packaging (setuptools)
+│   └── CONTEXT.md            # API reference and project context
 ├── docs/                     # Documentation
 └── build/                    # Build directory (generated)
 ```
