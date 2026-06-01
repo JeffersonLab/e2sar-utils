@@ -55,6 +55,8 @@ def parse_args():
                    help="Save a two-panel histogram PNG to FILE (--histogram only)")
     p.add_argument("--flush-every", type=int, default=10, metavar="N",
                    help="Re-save plot/stats every N batches (default: 10; 0 = only on exit)")
+    p.add_argument("--filter-abs-max", type=float, default=None, metavar="X",
+                   help="Discard events where abs(x) > X or abs(y) > X (default: no filter)")
 
     args = p.parse_args()
 
@@ -161,6 +163,13 @@ def main():
             arr = _extract_array(result)
             if arr is None:
                 continue
+
+            if args.filter_abs_max is not None:
+                mask = (np.abs(arr[:, 0]) <= args.filter_abs_max) & \
+                       (np.abs(arr[:, 1]) <= args.filter_abs_max)
+                arr = arr[mask]
+                if arr.size == 0:
+                    continue
 
             if args.save:
                 for x, y in arr:

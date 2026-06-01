@@ -26,6 +26,7 @@
 #   --bins N                  Histogram bin count (default: 50; ignored with --save)
 #   --out-stats FILE          Save histogram .npz to FILE in the job dir (ignored with --save)
 #   --flush-every N           Re-save plot/stats every N batches (default: 10; 0 = only on exit)
+#   --filter-abs-max X        Discard events where abs(x) > X or abs(y) > X (default: no filter)
 #
 # Environment Variables:
 #   EJFAT_URI                 Required: EJFAT load balancer URI
@@ -65,6 +66,7 @@ PLOT_FILE=""
 BINS_ARG=""
 OUT_STATS_FILE=""
 FLUSH_EVERY_ARG=""
+FILTER_ABS_MAX_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -116,6 +118,10 @@ while [[ $# -gt 0 ]]; do
             FLUSH_EVERY_ARG="--flush-every $2"
             shift 2
             ;;
+        --filter-abs-max)
+            FILTER_ABS_MAX_ARG="--filter-abs-max $2"
+            shift 2
+            ;;
         --help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
             exit 0
@@ -150,6 +156,7 @@ else
     [[ -n "$FLUSH_EVERY_ARG" ]] && READER_ARGS="${READER_ARGS} ${FLUSH_EVERY_ARG}"
     READER_ARGS="${READER_ARGS} ${ITERATIONS_ARG}"
 fi
+[[ -n "$FILTER_ABS_MAX_ARG" ]] && READER_ARGS="${READER_ARGS} ${FILTER_ABS_MAX_ARG}"
 
 #=============================================================================
 # Environment setup
