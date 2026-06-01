@@ -487,9 +487,9 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
         ("dir", po::value<std::string>(&args.dir_path),
          "Directory of *.root files to process (mutually exclusive with positional files)")
         ("parallel", po::value<uint32_t>(&args.parallel_streams)->default_value(4),
-         "Max concurrent file streams when sending (default: 4)");
+         "Max concurrent file streams when sending (default: 4)")
         ("send-ip", po::value<std::string>(&args.send_ip),
-         "IP address for sender to register (optional; auto-detected if omitted)")
+         "IP address for sender to register (optional; auto-detected if omitted)");
 
     po::positional_options_description pos;
     pos.add("files", -1);
