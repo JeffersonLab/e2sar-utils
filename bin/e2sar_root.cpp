@@ -186,7 +186,8 @@ std::unique_ptr<e2sar::Segmenter> initializeSegmenter(
     bool withCP,
     float rateGbps,
     uint32_t num_send_sockets,
-    bool validateCert) {
+    bool validateCert,
+    const std::string& send_ip) {
 
     std::cout << "\nInitializing E2SAR Segmenter..." << std::endl;
 
@@ -201,12 +202,23 @@ std::unique_ptr<e2sar::Segmenter> initializeSegmenter(
     e2sar::EjfatURI uri = uri_result.value();
 
     if (withCP) {
-        std::cout << "Registering sender with load balancer..." << std::endl;
         e2sar::LBManager lbm(uri, validateCert);
-        auto addres = lbm.addSenderSelf();
-        if (addres.has_error()) {
-            std::cerr << "Unable to add sender to allow list: " << addres.error().message() << std::endl;
-            return nullptr;
+        if (send_ip.empty()) {
+            std::cout << "Auto-Registering sender with load balancer..." << std::endl;
+            auto addres = lbm.addSenderSelf();
+            if (addres.has_error()) {
+                std::cerr << "Unable to add sender to allow list: " << addres.error().message() << std::endl;
+                return nullptr;
+            }
+        } else {
+            std::cout << "Registering sender with ip " << send_ip << " with load balancer..." << std::endl;
+            std::vector<std::string> senders;
+            senders.push_back(send_ip);
+            auto addres = lbm.addSenders(senders);
+            if (addres.has_error()) {
+                std::cerr << "Unable to add sender to allow list: " << addres.error().message() << std::endl;
+                return nullptr;
+            }
         }
         std::cout << "  Sender registered successfully" << std::endl;
     }
@@ -476,6 +488,8 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
          "Directory of *.root files to process (mutually exclusive with positional files)")
         ("parallel", po::value<uint32_t>(&args.parallel_streams)->default_value(4),
          "Max concurrent file streams when sending (default: 4)");
+        ("send-ip", po::value<std::string>(&args.send_ip),
+         "IP address for sender to register (optional; auto-detected if omitted)")
 
     po::positional_options_description pos;
     pos.add("files", -1);
@@ -629,7 +643,8 @@ int main(int argc, char* argv[]) {
                                                  args.event_src_id, args.mtu,
                                                  args.withCP, args.rateGbps,
                                                  args.num_send_sockets,
-                                                 args.validate);
+                                                 args.validate,
+                                                 args.send_ip);
             if (!segmenter) {
                 std::cerr << "Failed to initialize E2SAR segmenter" << std::endl;
                 return 1;
