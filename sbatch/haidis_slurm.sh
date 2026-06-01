@@ -14,7 +14,9 @@
 #   --gpus-per-node N    Number of GPUs per node (default: 4)
 #
 # Environment Variables:
-#   EJFAT_URI         Required: EJFAT load balancer URI
+#   EJFAT_URI                 Required: EJFAT load balancer URI
+#   ERSAP_CONFIG_DIR          Optional: path to per-run ERSAP config dir; mounted over /user_data/config
+#   SAGIPS_HYDRA_OVERRIDES    Optional: space-separated Hydra key=value overrides passed to SAGIPS
 #
 # Example (single node):
 #   EJFAT_URI="ejfat://..." sbatch -N 1 -A <project> haidis_slurm.sh
@@ -174,6 +176,12 @@ echo "========================================="
 echo "Phase 2: Starting ERSAP containers"
 echo "========================================="
 
+# Build optional ERSAP config bind mount (expands at heredoc write time)
+ERSAP_CONFIG_MOUNT=""
+if [[ -n "${ERSAP_CONFIG_DIR:-}" ]]; then
+    ERSAP_CONFIG_MOUNT="-v ${ERSAP_CONFIG_DIR}:/user_data/config"
+fi
+
 # Generate the ERSAP launcher script
 cat > $JOB_DIR/ersap_launcher_${SLURM_JOB_ID}.sh << EOF
 #!/bin/bash
@@ -192,6 +200,7 @@ timeout ${CONTAINER_TIMEOUT} podman-hpc run \
     --network=host --ipc=host --rm --group-add keep-groups \
     --ulimit nofile=65536:65536 \
     -v ${SCRIPT_DIR}/ersap-data:/user_data \
+    ${ERSAP_CONFIG_MOUNT} \
     -e EJFAT_URI='${EJFAT_URI}' \
     -e RECV_IP=\$RECEIVER_IP \
     ${ERSAPIMAGE} > ${JOB_DIR}/ersap_\$(hostname).log 2>&1
@@ -244,6 +253,7 @@ srun --ntasks=${TOTAL_RANKS} \
 	 -v "${SAGIPS_REPO_ROOT}/mock_sender":/app/mock_sender \
 	 -v "${SAGIPS_REPO_ROOT}/scripts":/app/scripts \
 	 --env-file "${SAGIPS_REPO_ROOT}/.env" \
+	 -e SAGIPS_HYDRA_OVERRIDES="${SAGIPS_HYDRA_OVERRIDES:-}" \
          ${SAGIPSIMAGE} \
 	 bash -c /app/scripts/perlmutter_cmd.sh
 

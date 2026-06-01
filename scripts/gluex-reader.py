@@ -9,6 +9,7 @@ Emits the same log signals as SAGIPS so haidis-run monitor.py works unchanged:
 import argparse
 import signal
 import sys
+from datetime import datetime, timezone
 
 import matplotlib
 matplotlib.use("Agg")  # headless — no display required
@@ -52,6 +53,8 @@ def parse_args():
                    help="Save histogram bin edges and counts as .npz to FILE (--histogram only)")
     p.add_argument("--plot", metavar="FILE",
                    help="Save a two-panel histogram PNG to FILE (--histogram only)")
+    p.add_argument("--flush-every", type=int, default=10, metavar="N",
+                   help="Re-save plot/stats every N batches (default: 10; 0 = only on exit)")
 
     args = p.parse_args()
 
@@ -74,6 +77,12 @@ def _extract_array(result) -> np.ndarray | None:
     elif arr.shape[1] != 2:
         arr = arr.reshape(-1, 2)
     return arr
+
+
+def _timestamped_path(path: str) -> str:
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    stem, dot, ext = path.rpartition(".")
+    return f"{stem}_{ts}.{ext}" if stem else f"{path}_{ts}"
 
 
 def _print_histogram(label: str, edges: np.ndarray, counts: np.ndarray):
@@ -173,6 +182,15 @@ def main():
 
             iteration += 1
 
+            if args.flush_every and iteration % args.flush_every == 0 and hist_edges_x is not None:
+                if args.plot:
+                    _save_plot(_timestamped_path(args.plot),
+                               hist_edges_x, hist_counts_x, hist_edges_y, hist_counts_y)
+                if args.out_stats:
+                    np.savez(_timestamped_path(args.out_stats),
+                             bins_x=hist_edges_x, counts_x=hist_counts_x,
+                             bins_y=hist_edges_y, counts_y=hist_counts_y)
+
             if args.iterations is not None and iteration >= args.iterations:
                 n = args.iterations
                 print(f"HAIDIS TRAINING COMPLETE: epochs={n}/{n}", flush=True)
@@ -188,13 +206,14 @@ def main():
             _print_histogram("Y", hist_edges_y, hist_counts_y)
 
             if args.out_stats:
-                np.savez(args.out_stats,
+                out_stats_path = _timestamped_path(args.out_stats)
+                np.savez(out_stats_path,
                          bins_x=hist_edges_x, counts_x=hist_counts_x,
                          bins_y=hist_edges_y, counts_y=hist_counts_y)
-                print(f"Histogram data saved to {args.out_stats}", flush=True)
+                print(f"Histogram data saved to {out_stats_path}", flush=True)
 
             if args.plot:
-                _save_plot(args.plot,
+                _save_plot(_timestamped_path(args.plot),
                            hist_edges_x, hist_counts_x,
                            hist_edges_y, hist_counts_y)
 

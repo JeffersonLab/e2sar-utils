@@ -25,6 +25,7 @@
 #   --plot FILE               Override default histogram PNG path (default: histogram_<node>.png)
 #   --bins N                  Histogram bin count (default: 50; ignored with --save)
 #   --out-stats FILE          Save histogram .npz to FILE in the job dir (ignored with --save)
+#   --flush-every N           Re-save plot/stats every N batches (default: 10; 0 = only on exit)
 #
 # Environment Variables:
 #   EJFAT_URI                 Required: EJFAT load balancer URI
@@ -63,6 +64,7 @@ SAVE_FILE=""
 PLOT_FILE=""
 BINS_ARG=""
 OUT_STATS_FILE=""
+FLUSH_EVERY_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -110,6 +112,10 @@ while [[ $# -gt 0 ]]; do
             OUT_STATS_FILE="$2"
             shift 2
             ;;
+        --flush-every)
+            FLUSH_EVERY_ARG="--flush-every $2"
+            shift 2
+            ;;
         --help)
             sed -n '2,/^$/p' "$0" | sed 's/^# \?//'
             exit 0
@@ -139,8 +145,9 @@ else
     else
         READER_ARGS="--histogram --plot /app/outputs/histogram_\$(hostname).png"
     fi
-    [[ -n "$BINS_ARG" ]]      && READER_ARGS="${READER_ARGS} ${BINS_ARG}"
-    [[ -n "$OUT_STATS_FILE" ]] && READER_ARGS="${READER_ARGS} --out-stats /app/outputs/${OUT_STATS_FILE}"
+    [[ -n "$BINS_ARG" ]]        && READER_ARGS="${READER_ARGS} ${BINS_ARG}"
+    [[ -n "$OUT_STATS_FILE" ]]  && READER_ARGS="${READER_ARGS} --out-stats /app/outputs/${OUT_STATS_FILE}"
+    [[ -n "$FLUSH_EVERY_ARG" ]] && READER_ARGS="${READER_ARGS} ${FLUSH_EVERY_ARG}"
     READER_ARGS="${READER_ARGS} ${ITERATIONS_ARG}"
 fi
 
