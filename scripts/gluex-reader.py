@@ -83,8 +83,9 @@ def _extract_array(result) -> np.ndarray | None:
 
 def _timestamped_path(path: str) -> str:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
-    stem, dot, ext = path.rpartition(".")
+    stem, _, ext = path.rpartition(".")
     return f"{stem}_{ts}.{ext}" if stem else f"{path}_{ts}"
+
 
 
 def _print_histogram(label: str, edges: np.ndarray, counts: np.ndarray):
@@ -140,10 +141,11 @@ def main():
         print("ERROR: ShmemReader.initialize() failed", file=sys.stderr)
         sys.exit(1)
 
-    # Histogram state accumulated across all batches.
-    # Bin edges are fixed from the first batch; only counts grow.
+    # Histogram state: edges fixed from first batch, counts accumulated incrementally.
+    # Out-of-range events are dropped jointly (both axes together) so totals always match.
     hist_edges_x = hist_edges_y = None
     hist_counts_x = hist_counts_y = None
+    out_of_range_count = 0
 
     out_file = None
     iteration = 0
@@ -183,8 +185,15 @@ def main():
                     _, hist_edges_y = np.histogram(ys, bins=args.bins)
                     hist_counts_x = np.zeros(args.bins, dtype=np.int64)
                     hist_counts_y = np.zeros(args.bins, dtype=np.int64)
-                hist_counts_x += np.histogram(xs, bins=hist_edges_x)[0]
-                hist_counts_y += np.histogram(ys, bins=hist_edges_y)[0]
+                # Drop events where either axis is out of the established range.
+                # Joint mask keeps X and Y totals identical.
+                in_range = ((xs >= hist_edges_x[0]) & (xs <= hist_edges_x[-1]) &
+                            (ys >= hist_edges_y[0]) & (ys <= hist_edges_y[-1]))
+                out_of_range_count += int((~in_range).sum())
+                xs_in, ys_in = xs[in_range], ys[in_range]
+                if xs_in.size:
+                    hist_counts_x += np.histogram(xs_in, bins=hist_edges_x)[0]
+                    hist_counts_y += np.histogram(ys_in, bins=hist_edges_y)[0]
 
             if (iteration % 10 == 0):
                 print(f"Iteration {iteration}", flush=True)
@@ -213,6 +222,8 @@ def main():
         if args.histogram and hist_edges_x is not None:
             _print_histogram("X", hist_edges_x, hist_counts_x)
             _print_histogram("Y", hist_edges_y, hist_counts_y)
+            if out_of_range_count:
+                print(f"  Events dropped (out of initial range): {out_of_range_count:,}", flush=True)
 
             if args.out_stats:
                 out_stats_path = _timestamped_path(args.out_stats)
