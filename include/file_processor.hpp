@@ -25,6 +25,7 @@ struct CommandLineArgs {
     // E2SAR receiving options
     bool recv_data = false;
     std::string recv_ip;
+    std::string send_ip;
     uint16_t recv_port = 19522;
     size_t recv_threads = 1;
     std::string output_pattern = "event_{:08d}.dat";

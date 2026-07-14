@@ -1,28 +1,43 @@
 #!/bin/bash
-# SLURM batch script for HAIDIS on Perlmutter
+# SLURM batch script for HAIDIS CPU-only integration test on Perlmutter
+#
+# Runs ERSAP + gluex-reader.py on CPU nodes (no GPU required).
+# Replaces SAGIPS with a lightweight Python reader that emits the same
+# log signals, so haidis-run monitoring works unchanged.
 #
 # SLURM Options (can be overridden via sbatch):
 #   -N 1              Number of nodes (override with -N on sbatch command line)
-#   -q debug          Queue (debug or regular)
+#   -q debug          Queue (debug or shared for CPU)
 #   -t 00:30:00       Time limit
 #   -A <allocation>   Project allocation
 #
 # Other Options:
-#   --sagipsimage IMAGE  Container image (default: localhost/haidis-ips:dev)
-#   --ersapimage IMAGE   Container image (default: docker.io/gurjyan/haidis-dp:latest)
-#   --e2sarimage IMAGE   Container image (default: docker.io/ibaldin/e2sar:0.3.1)
-#   --gpus-per-node N    Number of GPUs per node (default: 4)
+#   --gluexreaderimage IMAGE  Container image (default: localhost/gluex-reader:dev)
+#   --ersapimage IMAGE        Container image (default: docker.io/gurjyan/haidis-dp:latest)
+#   --e2sarimage IMAGE        Container image (default: docker.io/ibaldin/e2sar:0.3.1)
+#   --shmem-name NAME         Shared memory segment name (default: haidis_shmem)
+#   --sem-name NAME           Semaphore name (default: haidis_sem)
+#   --sem-ack-name NAME       Ack semaphore name (default: haidis_sem_ack)
+#   --iterations N            Batches to read before exiting (default: no limit)
+#
+# Reader mode (mutually exclusive; default is --histogram):
+#   --save FILE               Write raw CSV (x,y per event) to FILE in the job dir
+#   --plot FILE               Override default histogram PNG path (default: histogram_<node>.png)
+#   --bins N                  Histogram bin count (default: 50; ignored with --save)
+#   --out-stats FILE          Save histogram .npz to FILE in the job dir (ignored with --save)
+#   --flush-every N           Re-save plot/stats every N batches (default: 10; 0 = only on exit)
+#   --filter-abs-max X        Discard events where abs(x) > X or abs(y) > X (default: no filter)
 #
 # Environment Variables:
 #   EJFAT_URI                 Required: EJFAT load balancer URI
 #   ERSAP_CONFIG_DIR          Optional: path to per-run ERSAP config dir; mounted over /user_data/config
-#   SAGIPS_HYDRA_OVERRIDES    Optional: space-separated Hydra key=value overrides passed to SAGIPS
 #
 # Example (single node):
-#   EJFAT_URI="ejfat://..." sbatch -N 1 -A <project> haidis_slurm.sh
+#   EJFAT_URI="ejfat://..." sbatch -N 1 -A <project> haidis_cpu_test.sh
 #
-# Example (multi-node):
-#   EJFAT_URI="ejfat://..." sbatch -N 4 -A <project> haidis_slurm.sh
+# Example (with per-run ERSAP config):
+#   EJFAT_URI="ejfat://..." ERSAP_CONFIG_DIR=/path/to/ersap/config \
+#       sbatch -N 1 -A <project> haidis_cpu_test.sh
 
 ##SBATCH -N 1              # commented out - pass -N on sbatch command line
 #SBATCH --account=amsc016
@@ -30,9 +45,7 @@
 #SBATCH -t 00:30:00
 #SBATCH -o runs/slurm-%j.out
 #SBATCH -e runs/slurm-%j.err
-#SBATCH --constraint=gpu
-#SBATCH --gpus-per-node=4
-#SBATCH --gpu-bind=none
+#SBATCH --constraint=cpu
 #SBATCH --chdir=/global/cfs/cdirs/amsc016/haidis/
 
 set -euo pipefail
@@ -41,16 +54,24 @@ set -euo pipefail
 # Parse command-line arguments
 #=============================================================================
 
-SAGIPSIMAGE="localhost/haidis-ips:dev"
+GLUEXREADERIMAGE="localhost/gluex-reader:dev"
 ERSAPIMAGE="docker.io/gurjyan/haidis-dp:latest"
 E2SARIMAGE="docker.io/ibaldin/e2sar:0.3.1"
-GPUS_PER_NODE=4
-SAGIPS_REPO_ROOT="/global/cfs/cdirs/amsc016/haidis/haidis-ips"
+SHMEM_NAME="haidis_shmem"
+SEM_NAME="haidis_sem"
+SEM_ACK_NAME="haidis_sem_ack"
+ITERATIONS_ARG=""
+SAVE_FILE=""
+PLOT_FILE=""
+BINS_ARG=""
+OUT_STATS_FILE=""
+FLUSH_EVERY_ARG=""
+FILTER_ABS_MAX_ARG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --sagipsimage)
-            SAGIPSIMAGE="$2"
+        --gluexreaderimage)
+            GLUEXREADERIMAGE="$2"
             shift 2
             ;;
         --ersapimage)
@@ -61,8 +82,44 @@ while [[ $# -gt 0 ]]; do
             E2SARIMAGE="$2"
             shift 2
             ;;
-        --gpus-per-node)
-            GPUS_PER_NODE="$2"
+        --shmem-name)
+            SHMEM_NAME="$2"
+            shift 2
+            ;;
+        --sem-name)
+            SEM_NAME="$2"
+            shift 2
+            ;;
+        --sem-ack-name)
+            SEM_ACK_NAME="$2"
+            shift 2
+            ;;
+        --iterations)
+            ITERATIONS_ARG="--iterations $2"
+            shift 2
+            ;;
+        --save)
+            SAVE_FILE="$2"
+            shift 2
+            ;;
+        --plot)
+            PLOT_FILE="$2"
+            shift 2
+            ;;
+        --bins)
+            BINS_ARG="--bins $2"
+            shift 2
+            ;;
+        --out-stats)
+            OUT_STATS_FILE="$2"
+            shift 2
+            ;;
+        --flush-every)
+            FLUSH_EVERY_ARG="--flush-every $2"
+            shift 2
+            ;;
+        --filter-abs-max)
+            FILTER_ABS_MAX_ARG="--filter-abs-max $2"
             shift 2
             ;;
         --help)
@@ -77,20 +134,44 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate and build reader args passed into the launcher heredoc.
+# \$(hostname) in the default plot path is intentionally unescaped here so it
+# lands as a literal $(hostname) in the generated launcher script and expands
+# on each compute node at runtime.
+if [[ -n "$SAVE_FILE" && -n "$PLOT_FILE" ]]; then
+    echo "ERROR: --save and --plot are mutually exclusive"
+    exit 1
+fi
+
+if [[ -n "$SAVE_FILE" ]]; then
+    READER_ARGS="--save /app/outputs/${SAVE_FILE} ${ITERATIONS_ARG}"
+else
+    if [[ -n "$PLOT_FILE" ]]; then
+        READER_ARGS="--histogram --plot /app/outputs/${PLOT_FILE}"
+    else
+        READER_ARGS="--histogram --plot /app/outputs/histogram_\$(hostname).png"
+    fi
+    [[ -n "$BINS_ARG" ]]        && READER_ARGS="${READER_ARGS} ${BINS_ARG}"
+    [[ -n "$OUT_STATS_FILE" ]]  && READER_ARGS="${READER_ARGS} --out-stats /app/outputs/${OUT_STATS_FILE}"
+    [[ -n "$FLUSH_EVERY_ARG" ]] && READER_ARGS="${READER_ARGS} ${FLUSH_EVERY_ARG}"
+    READER_ARGS="${READER_ARGS} ${ITERATIONS_ARG}"
+fi
+[[ -n "$FILTER_ABS_MAX_ARG" ]] && READER_ARGS="${READER_ARGS} ${FILTER_ABS_MAX_ARG}"
+
 #=============================================================================
 # Environment setup
 #=============================================================================
 
-TOTAL_RANKS=$((SLURM_NNODES * GPUS_PER_NODE))
-
 echo "========================================="
-echo "HAIDIS Test - SLURM Job $SLURM_JOB_ID running in $PWD"
-echo "SAGIPS IMAGE: ${SAGIPSIMAGE}"
-echo "ERSAP IMAGE:  ${ERSAPIMAGE}"
-echo "E2SAR IMAGE:  ${E2SARIMAGE}"
-echo "Nodes:        ${SLURM_NNODES}"
-echo "GPUs/node:    ${GPUS_PER_NODE}"
-echo "Total ranks:  ${TOTAL_RANKS}"
+echo "HAIDIS CPU Test - SLURM Job $SLURM_JOB_ID running in $PWD"
+echo "GLUEX READER IMAGE: ${GLUEXREADERIMAGE}"
+echo "ERSAP IMAGE:        ${ERSAPIMAGE}"
+echo "E2SAR IMAGE:        ${E2SARIMAGE}"
+echo "Nodes:              ${SLURM_NNODES}"
+echo "Shmem name:         ${SHMEM_NAME}"
+echo "Sem name:           ${SEM_NAME}"
+echo "Sem ack name:       ${SEM_ACK_NAME}"
+echo "Reader args:        ${READER_ARGS}"
 echo "========================================="
 echo "Start time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo ""
@@ -141,7 +222,6 @@ echo "Nodes: ${NODE_ARRAY[@]}"
 echo ""
 
 # Pre-create per-node output directories on the shared filesystem
-# so Hydra doesn't fail trying to create them inside the container
 for node in "${NODE_ARRAY[@]}"; do
     mkdir -p "$JOB_DIR/$node"
 done
@@ -168,9 +248,9 @@ fi
 #=============================================================================
 # Phase 2: Launch ERSAP containers - one per node, in parallel
 #
-# ERSAP is launched via srun as a separate step, one task per node.
-# Each node's ERSAP writes to the node-local IPC shared memory segment.
-# This step runs in the background so Phase 3 can follow after a short delay.
+# Identical to haidis_slurm.sh minus GPU srun flags.
+# ERSAP_CONFIG_DIR, if set, is mounted over /user_data/config so a per-run
+# services.yaml can override the default without duplicating the full data tree.
 #=============================================================================
 echo "========================================="
 echo "Phase 2: Starting ERSAP containers"
@@ -221,44 +301,50 @@ echo "ERSAP srun launched (PID $ERSAP_SRUN_PID), waiting for shmem to be populat
 sleep 10
 
 #=============================================================================
-# Phase 3: Launch SAGIPS via a single srun spanning all nodes
+# Phase 3: Launch gluex-reader.py - one per node via srun
 #
-# srun acts as the MPI launcher injecting Cray MPICH with PMIx support
-# which podman-hpc --mpi picks up
-#
-# SLURM_LOCALID (0..GPUS_PER_NODE-1) is used for CUDA_VISIBLE_DEVICES so
-# each rank is pinned to its own GPU. SLURM_NODEID is used to route output
-# to the per-node directory.
+# Replaces SAGIPS. Single process per node (no MPI, no GPU).
+# Emits the same log signals as SAGIPS so haidis-run monitoring is unchanged:
+#   - "Waiting for data (sample 1)"      → readiness signal
+#   - "HAIDIS TRAINING COMPLETE: ..."    → completion signal
 #=============================================================================
 echo "========================================="
-echo "Phase 3: Starting SAGIPS ($TOTAL_RANKS total ranks)"
+echo "Phase 3: Starting gluex reader (${SLURM_NNODES} nodes)"
 echo "========================================="
 
+# Generate the gluex-reader launcher script (same pattern as ERSAP launcher so
+# $(hostname) is evaluated on each compute node, not on the head node)
+cat > $JOB_DIR/reader_launcher_${SLURM_JOB_ID}.sh << EOF
+#!/bin/bash
+# Runs once per node via srun --ntasks-per-node=1
 
-srun --ntasks=${TOTAL_RANKS} \
-     --ntasks-per-node=${GPUS_PER_NODE} \
-     --gpus-per-node=${GPUS_PER_NODE} \
-     --gpu-bind=none \
+echo "[\$(hostname)] gluex-reader starting"
+
+podman-hpc run --rm \
+    --ipc=host \
+    --security-opt=label=disable \
+    --group-add keep-groups \
+    -v ${JOB_DIR}:/app/outputs \
+    ${GLUEXREADERIMAGE} \
+    --shmem-name ${SHMEM_NAME} \
+    --sem-name ${SEM_NAME} \
+    --sem-ack-name ${SEM_ACK_NAME} \
+    ${READER_ARGS}
+
+READER_EXIT=\$?
+echo "[\$(hostname)] gluex-reader exited with code \$READER_EXIT"
+exit \$READER_EXIT
+EOF
+
+chmod +x $JOB_DIR/reader_launcher_${SLURM_JOB_ID}.sh
+
+srun --ntasks=${SLURM_NNODES} \
+     --ntasks-per-node=1 \
      --overlap \
-     podman-hpc run --rm --mpi \
-         --ipc=host \
-         --security-opt=label=disable \
-         --gpus all \
-	 --group-add keep-groups \
-         -v ${JOB_DIR}/${NODE_ARRAY[0]}:/app/outputs \
-	 -v "${SAGIPS_REPO_ROOT}/src":/app/src \
-	 -v "${SAGIPS_REPO_ROOT}/pyproject.toml":/app/pyproject.toml \
-	 -v "${SAGIPS_REPO_ROOT}/uv.lock":/app/uv.lock \
-	 -v "${SAGIPS_REPO_ROOT}/README.md":/app/README.md \
-	 -v "${SAGIPS_REPO_ROOT}/mock_sender":/app/mock_sender \
-	 -v "${SAGIPS_REPO_ROOT}/scripts":/app/scripts \
-	 --env-file "${SAGIPS_REPO_ROOT}/.env" \
-	 -e SAGIPS_HYDRA_OVERRIDES="${SAGIPS_HYDRA_OVERRIDES:-}" \
-         ${SAGIPSIMAGE} \
-	 bash -c /app/scripts/perlmutter_cmd.sh
+     bash $JOB_DIR/reader_launcher_${SLURM_JOB_ID}.sh
 
-SAGIPS_EXIT=$?
-echo "SAGIPS srun completed with exit code $SAGIPS_EXIT"
+READER_EXIT=$?
+echo "gluex-reader srun completed with exit code $READER_EXIT"
 
 #=============================================================================
 # Cleanup: shut down ERSAP containers
@@ -267,7 +353,6 @@ echo "========================================="
 echo "Shutting down ERSAP containers"
 echo "========================================="
 
-# Kill the ERSAP srun - this will terminate ERSAP containers on all nodes
 kill $ERSAP_SRUN_PID 2>/dev/null || true
 wait $ERSAP_SRUN_PID 2>/dev/null || true
 echo "ERSAP containers stopped"
@@ -280,16 +365,15 @@ echo "Test Summary"
 echo "========================================="
 echo "Job ID:        $SLURM_JOB_ID"
 echo "Nodes:         $SLURM_NNODES"
-echo "Total ranks:   $TOTAL_RANKS"
 echo "Job directory: $JOB_DIR"
 echo ""
 echo "Logs available at:"
 echo "  - SBatch logs:          $RUNS_DIR/slurm-${SLURM_JOB_ID}.out/.err"
 echo "  - ERSAP logs:           $JOB_DIR/ersap_<node>.log"
-echo "  - SAGIPS output:        $RUNS_DIR/slurm-${SLURM_JOB_ID}.out"
-echo "  - Per-node outputs:     $SCRIPT_DIR/outputs/<node>/"
+echo "  - Reader stdout:        $RUNS_DIR/slurm-${SLURM_JOB_ID}.out"
+echo "  - Reader output files:  $JOB_DIR/"
 echo ""
 echo "End time: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 echo "========================================="
 
-exit $SAGIPS_EXIT
+exit $READER_EXIT

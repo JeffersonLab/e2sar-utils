@@ -1,0 +1,16 @@
+FROM python:3.11-slim
+
+# build-essential needed for posix-ipc C extension compilation
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir shmem-reader matplotlib
+
+WORKDIR /app
+COPY scripts/gluex-reader.py gluex-reader.py
+
+# Ensure log signals (Waiting for data / HAIDIS TRAINING COMPLETE) flush immediately
+ENV PYTHONUNBUFFERED=1
+
+ENTRYPOINT ["python", "gluex-reader.py"]
