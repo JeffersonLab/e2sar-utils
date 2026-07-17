@@ -120,7 +120,7 @@ echo "✓ Stale process cleanup done"
 # Step 5: Start ET system in background
 echo "----------------------------------------"
 echo "Starting ET system..."
-ET_START_CMD="et_start -f /tmp/et_sys -v -d -n 1000 -s 2097152 -p 23911"
+ET_START_CMD="et_start -f /tmp/et_sys -v -d -n 10 -s 16777216 -p 23911"
 echo "Command: ${ET_START_CMD}"
 
 # Check if et_start is available
