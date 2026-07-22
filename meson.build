@@ -10,6 +10,10 @@ project('e2sar-utils', 'cpp',
 # C++ compiler
 cxx = meson.get_compiler('cpp')
 
+# Newer Xcode SDKs (macOS 15.4+) removed _LIBCPP_ENABLE_ASSERTIONS; undefine it
+# so meson's b_ndebug=false doesn't break the build on updated toolchains.
+add_project_arguments('-U_LIBCPP_ENABLE_ASSERTIONS', language: 'cpp')
+
 # Compile-time dependencies
 # Boost dependencies: program_options used by root-reader, others required by e2sar
 # Note: Boost doesn't provide .pc files, so we must declare them explicitly even though

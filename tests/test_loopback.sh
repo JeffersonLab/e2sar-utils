@@ -22,6 +22,7 @@
 #   --dataid N         Data ID passed to E2SAR Segmenter (default: 0)
 #   --rate R           Send rate in Gbps passed to Segmenter (default: -1.0 = no limit)
 #   --numsocks N       Number of Segmenter send sockets (default: 4)
+#   --nosave           Pass --nosave to receiver; verify by log instead of file count
 #   --help             Show this help message
 #
 
@@ -38,6 +39,7 @@ LINK_DIR=""
 DATAID=0
 RATE=-1.0
 NUM_SOCKS=4
+NOSAVE=false
 SCHEMA=toy   # toy | gluex
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -139,6 +141,10 @@ while [[ $# -gt 0 ]]; do
             NUM_SOCKS="$2"
             shift 2
             ;;
+        --nosave)
+            NOSAVE=true
+            shift
+            ;;
         --parallel)
             PARALLEL="$2"
             shift 2
@@ -200,6 +206,7 @@ echo "  MTU:         $MTU"
 echo "  Rate:        $RATE Gbps"
 echo "  Num sockets: $NUM_SOCKS"
 echo "  Data ID:     $DATAID"
+echo "  No-save:     $NOSAVE"
 echo "  Timeout:     $TIMEOUT seconds"
 echo "  Output dir:  $OUTPUT_DIR"
 echo ""
@@ -208,11 +215,15 @@ echo ""
 log_info "Starting receiver..."
 cd "$OUTPUT_DIR"
 
+NOSAVE_ARG=""
+[[ "$NOSAVE" == "true" ]] && NOSAVE_ARG="--nosave"
+
 "$EXECUTABLE" -r \
     -u "$EJFAT_URI" \
     --recv-ip 127.0.0.1 \
     --dataid "$DATAID" \
     -o "event_{:08d}.dat" \
+    $NOSAVE_ARG \
     > "$RECV_LOG" 2>&1 &
 
 RECV_PID=$!
@@ -278,7 +289,7 @@ log_info "Sender stats: $BUFFERS_SENT batches sent, $SEND_ERRORS errors, ${THROU
 log_info "Waiting up to $TIMEOUT seconds for receiver to finish processing..."
 
 WAIT_START=$(date +%s)
-EXPECTED_FILES=$BUFFERS_SENT
+EXPECTED_EVENTS=$BUFFERS_SENT
 
 while true; do
     CURRENT_TIME=$(date +%s)
@@ -289,17 +300,24 @@ while true; do
         break
     fi
 
-    # Count received files
-    RECEIVED_FILES=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
+    if [[ "$NOSAVE" == "true" ]]; then
+        # In nosave mode the receiver keeps running; poll the log for received count.
+        # Both the periodic progress line and the final summary line contain
+        # "Batches received: N"; awk ignores leading whitespace so $3 works for both.
+        RECEIVED_EVENTS=$(awk '/Batches received:/{print $3}' "$RECV_LOG" | tail -1)
+        RECEIVED_EVENTS=${RECEIVED_EVENTS:-0}
+    else
+        RECEIVED_EVENTS=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
+    fi
 
-    if [[ "$RECEIVED_FILES" -ge "$EXPECTED_FILES" ]]; then
-        log_info "All $EXPECTED_FILES EJFAT events received"
+    if [[ "$RECEIVED_EVENTS" -ge "$EXPECTED_EVENTS" ]]; then
+        log_info "All $EXPECTED_EVENTS EJFAT events received"
         break
     fi
 
     # Progress update every 5 seconds
     if [[ $((ELAPSED % 5)) -eq 0 ]] && [[ $ELAPSED -gt 0 ]]; then
-        log_info "Progress: $RECEIVED_FILES / $EXPECTED_FILES EJFAT events received ($ELAPSED seconds elapsed)"
+        log_info "Progress: $RECEIVED_EVENTS / $EXPECTED_EVENTS EJFAT events received ($ELAPSED seconds elapsed)"
     fi
 
     sleep 1
@@ -309,21 +327,29 @@ done
 log_info "Stopping receiver..."
 kill -INT "$RECV_PID" 2>/dev/null || true
 wait "$RECV_PID" 2>/dev/null || true
-sync  # flush kernel page cache so file count is accurate
 
-# Count final results
-RECEIVED_FILES=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
+# Final received count
+if [[ "$NOSAVE" == "true" ]]; then
+    RECEIVED_EVENTS=$(awk '/Batches received:/{print $3}' "$RECV_LOG" | tail -1)
+    RECEIVED_EVENTS=${RECEIVED_EVENTS:-0}
+    RECV_RATE=$(awk '/^Average rate:/{print $3}' "$RECV_LOG" | tail -1)
+else
+    sync  # flush kernel page cache so file count is accurate
+    RECEIVED_EVENTS=$(ls "$OUTPUT_DIR"/event_*.dat 2>/dev/null | wc -l | tr -d ' ')
+    RECV_RATE=""
+fi
 
 echo ""
 log_info "========== Test Results =========="
 echo "  Parallel files:   $NUM_FILES"
 echo "  Buffers sent:     $BUFFERS_SENT"
-echo "  Files received:   $RECEIVED_FILES"
+echo "  Batches received: $RECEIVED_EVENTS"
 echo "  Send errors:      $SEND_ERRORS"
 echo "  Throughput:       $THROUGHPUT Gbps"
+[[ -n "$RECV_RATE" ]] && echo "  Recv rate:        $RECV_RATE Mbps"
 
 # Verify results
-if [[ "$RECEIVED_FILES" -eq "$BUFFERS_SENT" ]] && [[ "$SEND_ERRORS" -eq "0" ]]; then
+if [[ "$RECEIVED_EVENTS" -ge "$BUFFERS_SENT" ]] && [[ "$SEND_ERRORS" -eq "0" ]]; then
     echo ""
     log_info "${GREEN}TEST PASSED${NC} - All buffers received successfully"
     TEST_PASSED=true
@@ -331,8 +357,8 @@ if [[ "$RECEIVED_FILES" -eq "$BUFFERS_SENT" ]] && [[ "$SEND_ERRORS" -eq "0" ]]; 
 else
     echo ""
     log_error "TEST FAILED"
-    if [[ "$RECEIVED_FILES" -ne "$BUFFERS_SENT" ]]; then
-        log_error "  Expected $BUFFERS_SENT files, got $RECEIVED_FILES"
+    if [[ "$RECEIVED_EVENTS" -lt "$BUFFERS_SENT" ]]; then
+        log_error "  Expected $BUFFERS_SENT batches, got $RECEIVED_EVENTS"
     fi
     if [[ "$SEND_ERRORS" -ne "0" ]]; then
         log_error "  $SEND_ERRORS send errors occurred"

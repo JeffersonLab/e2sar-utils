@@ -37,6 +37,8 @@ struct CommandLineArgs {
     // Event schema selection (exactly one required for sender/read-only mode)
     bool use_toy   = false;
     bool use_gluex = false;
+    // whether the receiver should save or simply count the events
+    bool noSaveEvents = false;
 };
 
 // Defined in file_processor.cpp; also used by e2sar_root.cpp (receiveEvents, main).
