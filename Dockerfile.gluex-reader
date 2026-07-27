@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir shmem-reader matplotlib
 
 WORKDIR /app
+COPY scripts/plot_rate.py plot_rate.py
 COPY scripts/gluex-reader.py gluex-reader.py
 
 # Ensure log signals (Waiting for data / HAIDIS TRAINING COMPLETE) flush immediately
