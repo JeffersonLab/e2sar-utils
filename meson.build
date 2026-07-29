@@ -8,6 +8,7 @@ project('e2sar-utils', 'cpp',
 )
 
 enable_et = get_option('enable_et')
+enable_ersap = get_option('enable_ersap')
 
 # C++ compiler
 cxx = meson.get_compiler('cpp')
@@ -66,6 +67,33 @@ if enable_et
   et_dep = declare_dependency(
     compile_args : ['-I' + et_incdir],
     link_args : ['-L' + et_libdir, '-let']
+  )
+endif
+
+# ERSAP dependency (only when enable_ersap=true)
+# Provides ersap::Engine + xMsg transport; used by ejfat_receiver_actor.
+if enable_ersap
+  ersap_root = run_command('sh', '-c', 'printf %s "$ERSAP_HOME"', check: true).stdout().strip()
+  if ersap_root == ''
+    error('enable_ersap=true but environment variable ERSAP_HOME is not set')
+  endif
+
+  fs = import('fs')
+  ersap_libdir = ''
+  foreach cand : ['lib64', 'lib']
+    candidate = ersap_root + '/' + cand
+    if ersap_libdir == '' and fs.exists(candidate + '/pkgconfig/ersap.pc')
+      ersap_libdir = candidate
+    endif
+  endforeach
+  if ersap_libdir == ''
+    error('Could not locate ersap.pc under ' + ersap_root + '/{lib64,lib}/pkgconfig')
+  endif
+
+  ersap_incdir = ersap_root + '/include'
+  ersap_dep = declare_dependency(
+    compile_args : ['-I' + ersap_incdir],
+    link_args : ['-L' + ersap_libdir, '-lersap', '-lxmsg']
   )
 endif
 

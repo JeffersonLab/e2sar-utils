@@ -21,3 +21,9 @@ option('enable_et',
   value : true,
   description : 'Build ET receiver (requires ET library)'
 )
+
+option('enable_ersap',
+  type : 'boolean',
+  value : true,
+  description : 'Build ERSAP actors (requires ERSAP_HOME to be set)'
+)

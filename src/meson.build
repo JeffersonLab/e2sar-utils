@@ -63,3 +63,35 @@ if get_option('enable_et')
     install : true,
   )
 endif
+
+# EJFAT receiver actor (ERSAP engine shared library)
+# Receives EJFAT UDP packets, reassembles events via E2SAR, and publishes
+# each event as raw BYTES over the ERSAP xMsg transport.
+if get_option('enable_ersap')
+  ejfat_receiver_actor_lib = library('EjfatReceiverActor',
+    'ejfat_receiver_actor.cpp',
+    dependencies : [
+      boost_url_dep,
+      boost_thread_dep,
+      boost_chrono_dep,
+      boost_log_dep,
+      e2sar_dep,
+      ersap_dep,
+      threads_dep,
+    ],
+    install : true,
+  )
+
+  # EJFAT processor actor (ERSAP engine shared library)
+  # Consumes BYTES published by EjfatReceiverActor over xMsg. Processing is
+  # omitted; the payload body is decoded from the [data_id][body] envelope
+  # and forwarded downstream.
+  ejfat_processor_actor_lib = library('EjfatProcessorActor',
+    'ejfat_processor_actor.cpp',
+    dependencies : [
+      ersap_dep,
+      threads_dep,
+    ],
+    install : true,
+  )
+endif
