@@ -342,7 +342,7 @@ struct ReceiveStats {
 
 // Receive events and write to memory-mapped files
 bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pattern,
-                   uint16_t expected_data_id) {
+                   uint16_t expected_data_id, bool noSave) {
     std::cout << "\nStarting batch reception..." << std::endl;
     std::cout << "Output pattern: " << output_pattern << std::endl;
     std::cout << "Press Ctrl+C to stop\n" << std::endl;
@@ -385,11 +385,14 @@ bool receiveEvents(e2sar::Reassembler& reassembler, const std::string& output_pa
 
         std::string filename = formatFilename(output_pattern, event_num);
 
-        if (writeMemoryMappedFile(filename, event_buffer, event_size)) {
-            stats.events_written++;
-        } else {
-            stats.write_errors++;
-            std::cerr << "Failed to write event " << event_num << std::endl;
+        // sometimes we just want to count events stats
+        if (not noSave) {
+            if (writeMemoryMappedFile(filename, event_buffer, event_size)) {
+                stats.events_written++;
+            } else {
+                stats.write_errors++;
+                std::cerr << "Failed to write event " << event_num << std::endl;
+            }
         }
 
         delete[] event_buffer;
@@ -476,6 +479,8 @@ CommandLineArgs parseArgs(int argc, char* argv[]) {
          "Use Dalitz toy-MC event schema (dalitz_root_tree branches)")
         ("gluex", po::bool_switch(&args.use_gluex)->default_value(false),
          "Use GlueX kinematic-fit event schema (myTree branches)")
+        ("nosave", po::bool_switch(&args.noSaveEvents)->default_value(false),
+         "Don't save events that are received into files, just count stats")
         ("withcp,c", po::bool_switch()->default_value(false),
          "enable control plane interactions")
         ("rate", po::value<float>(&args.rateGbps)->default_value(1.0),
@@ -609,7 +614,7 @@ int main(int argc, char* argv[]) {
                 return 1;
             }
 
-            bool success = receiveEvents(*reassembler, args.output_pattern, args.data_id);
+            bool success = receiveEvents(*reassembler, args.output_pattern, args.data_id, args.noSaveEvents);
 
             std::cout << "\nDeregistering worker..." << std::endl;
             auto deregres = reassembler->deregisterWorker();

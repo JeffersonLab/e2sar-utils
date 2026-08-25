@@ -51,7 +51,7 @@ sbatch/
 scripts/
 ├── start-gluex-sender.sh               # existing
 ├── stop-gluex-sender.sh                # existing
-└── shmem_reader.py                     # new: simple shmem consumer replacing SAGIPS (Phase 0)
+└── gluex-reader.py                     # shmem consumer replacing SAGIPS (Phase 0) ✓
 ```
 
 ---
@@ -430,16 +430,33 @@ The script keeps the same structure as `haidis_slurm.sh`:
 - Same `ERSAP_CONFIG_DIR` injection mechanism
 - Same log paths and job directory layout so `haidis-run` monitoring is unchanged
 
-**Deliverable 2: `scripts/shmem_reader.py`**
+**Deliverable 2: `scripts/gluex-reader.py`** ✓ Implemented
 
-A Python script that connects to the ERSAP shared memory segment and reads
-data in a loop. It emits the same log signals as SAGIPS so that `monitor.py`
-works unchanged:
+Connects to the ERSAP shared memory segment and reads data in a loop.
+Emits the same log signals as SAGIPS so that `monitor.py` works unchanged:
 
-- Readiness signal: `Waiting for data (sample 1)` — emitted once the shmem segment is attached and before the first read
-- Completion signal: `HAIDIS TRAINING COMPLETE: epochs=N/N` — emitted after `--iterations` batches have been read
+- Readiness signal: `Waiting for data (sample 1)` — emitted once, before the first read
+- Completion signal: `HAIDIS TRAINING COMPLETE: epochs=N/N` — emitted after `--iterations` batches
 
-Implementation details will be provided separately.
+Key CLI flags:
+
+```text
+gluex-reader.py --shmem-name NAME --sem-name NAME --sem-ack-name NAME
+                [--shmem-size BYTES] [--iterations N]
+                (--save FILE | --histogram)
+                [--bins N] [--out-stats FILE] [--plot FILE]
+                [--flush-every N] [--filter-abs-max X]
+```
+
+Two output modes (mutually exclusive, one required):
+
+- `--save FILE`: appends each batch as CSV rows (`x,y` per event)
+- `--histogram`: accumulates per-axis histograms; prints ASCII summary on exit; optionally writes `.npz` stats (`--out-stats`) and a two-panel PNG (`--plot`)
+
+Both modes support `--filter-abs-max X` to discard events where
+`abs(x) > X` or `abs(y) > X` before accumulation. Periodic intermediate
+saves via `--flush-every N` (default 10 batches). Handles `SIGTERM`/`SIGINT`
+for clean shutdown.
 
 **Impact on `haidis-run`:**
 

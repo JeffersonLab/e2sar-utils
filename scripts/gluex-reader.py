@@ -9,6 +9,7 @@ Emits the same log signals as SAGIPS so haidis-run monitor.py works unchanged:
 import argparse
 import signal
 import sys
+import time
 from datetime import datetime, timezone
 
 import matplotlib
@@ -149,6 +150,10 @@ def main():
 
     out_file = None
     iteration = 0
+    total_events = 0
+    interval_events = 0
+    t_start = time.monotonic()
+    t_interval = t_start
 
     try:
         if args.save:
@@ -165,6 +170,10 @@ def main():
             arr = _extract_array(result)
             if arr is None:
                 continue
+
+            batch_events = arr.shape[0]
+            total_events += batch_events
+            interval_events += batch_events
 
             if args.filter_abs_max is not None:
                 mask = (np.abs(arr[:, 0]) <= args.filter_abs_max) & \
@@ -196,7 +205,12 @@ def main():
                     hist_counts_y += np.histogram(ys_in, bins=hist_edges_y)[0]
 
             if (iteration % 10 == 0):
-                print(f"Iteration {iteration}", flush=True)
+                now = time.monotonic()
+                dt = now - t_interval
+                rate = interval_events / dt if dt > 0 else 0.0
+                print(f"Iteration {iteration} | {rate:,.0f} pairs/s | {total_events:,} total | elapsed={now - t_start:.2f}s | ts={time.time():.3f}", flush=True)
+                t_interval = now
+                interval_events = 0
 
             iteration += 1
 
@@ -218,6 +232,12 @@ def main():
         reader.cleanup()
         if out_file is not None:
             out_file.close()
+
+        elapsed = time.monotonic() - t_start
+        avg_rate = total_events / elapsed if elapsed > 0 else 0.0
+        print(f"\nTotal pairs received: {total_events:,} | "
+              f"Elapsed: {elapsed:.1f} s | "
+              f"Avg rate: {avg_rate:,.0f} pairs/s", flush=True)
 
         if args.histogram and hist_edges_x is not None:
             _print_histogram("X", hist_edges_x, hist_counts_x)
