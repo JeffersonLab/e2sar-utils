@@ -70,10 +70,15 @@ Read-only:      e2sar-root --toy|--gluex --tree <name> [--dir <dir>] [<file.root
 | `--numsocks N` | 4 | Number of Segmenter send sockets/threads |
 | `--dataid N` | 0 | Data ID passed to E2SAR Segmenter |
 | `--recv-ip <ip>` | — | IP address for receiver |
+| `--eventsrcid N` | 1 | Event source ID passed to E2SAR Segmenter |
 | `--recv-port N` | 19522 | Starting UDP port for receiver |
+| `--recv-threads N` | 1 | Number of reassembler receive threads |
 | `-o, --output-pattern` | `event_{:08d}.dat` | Output filename pattern for received events |
 | `--event-timeout N` | 500 | Reassembly timeout in ms |
+| `--nosave` | false | Count received batches only; do not write event files |
 | `-c, --withcp` | false | Enable control plane interactions |
+| `--send-ip <ip>` | — | Sender IP to register with load balancer (auto-detected if omitted) |
+| `-v, --novalidate` | false | Skip SSL certificate validation for gRPC/control-plane |
 
 ### Examples
 
@@ -198,6 +203,10 @@ After reconfiguring, recompile with:
 meson compile -C build/
 ```
 
+## Scripts
+
+Helper scripts for running GlueX senders and analyzing reader output. See [scripts/README.md](scripts/README.md) for full documentation.
+
 ## IRI-run
 
 A set of python utilities for launching and monitoring jobs on DOE resources via IRI APIs. More information in the [iri-run/README.md](iri-run/README.md). It has its own build and test structures.
@@ -220,6 +229,11 @@ pip install -e .
 │   └── file_processor.cpp   # RootFileProcessor::process() template method + hooks
 ├── bin/                      # Executable entry point → e2sar-root
 │   └── e2sar_root.cpp        # Signal handling, segmenter/reassembler init, main()
+├── scripts/                  # Operational helper scripts
+│   ├── start-gluex-sender.sh # Loop-send GlueX data via podman (production/test LBs)
+│   ├── stop-gluex-sender.sh  # Gracefully stop a running sender loop
+│   ├── gluex-reader.py       # Read ERSAP shared-memory output; save CSV or histograms
+│   └── plot_rate.py          # Plot throughput comparison across gluex-reader log files
 ├── tests/                    # Integration tests and ROOT analysis macros
 │   └── README.md             # Per-file descriptions
 ├── iri-run/                  # Python CLI tools for IRI API job submission (own build/tests)
