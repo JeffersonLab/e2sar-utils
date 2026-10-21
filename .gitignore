@@ -1,6 +1,12 @@
-# Build directory
+# Build / install directories
 build/
 builddir/
+install/
+
+# Python virtualenv and bytecode
+e2sar/
+__pycache__/
+*.pyc
 
 # Meson files
 .mesonpy-*
