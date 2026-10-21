@@ -9,6 +9,7 @@ project('e2sar-utils', 'cpp',
 
 enable_et = get_option('enable_et')
 enable_ersap = get_option('enable_ersap')
+enable_jni = get_option('enable_jni')
 
 # C++ compiler
 cxx = meson.get_compiler('cpp')
@@ -94,6 +95,35 @@ if enable_ersap
   ersap_dep = declare_dependency(
     compile_args : ['-I' + ersap_incdir],
     link_args : ['-L' + ersap_libdir, '-lersap', '-lxmsg']
+  )
+endif
+
+# JNI dependency (only when enable_jni=true)
+# Provides jni.h + jni_md.h for the EJFAT receiver JNI bridge consumed by
+# org.jlab.epsci.ersap.examples.engines.generic.EjfatReceiverSource.
+if enable_jni
+  java_home = run_command('sh', '-c', 'printf %s "$JAVA_HOME"', check: true).stdout().strip()
+  if java_home == ''
+    error('enable_jni=true but environment variable JAVA_HOME is not set')
+  endif
+
+  # jni_md.h lives in an OS-specific subdirectory; probe a few standard names.
+  fs_jni = import('fs')
+  jni_md_subdir = ''
+  foreach cand : ['linux', 'darwin', 'win32']
+    if jni_md_subdir == '' and fs_jni.exists(java_home + '/include/' + cand + '/jni_md.h')
+      jni_md_subdir = cand
+    endif
+  endforeach
+  if jni_md_subdir == ''
+    error('Could not locate jni_md.h under ' + java_home + '/include/{linux,darwin,win32}')
+  endif
+
+  jni_dep = declare_dependency(
+    compile_args : [
+      '-I' + java_home + '/include',
+      '-I' + java_home + '/include/' + jni_md_subdir,
+    ]
   )
 endif
 

@@ -95,3 +95,23 @@ if get_option('enable_ersap')
     install : true,
   )
 endif
+
+# EJFAT receiver JNI bridge (Java loadable shared library)
+# Exposes the E2SAR Reassembler to org.jlab.epsci.ersap.examples.engines.
+# generic.EjfatReceiverSource. Independent of enable_ersap so a Java-only
+# consumer can build the bridge without pulling in the C++ ERSAP plugin.
+if get_option('enable_jni')
+  ejfat_receiver_jni_lib = library('EjfatReceiverJni',
+    'ejfat_receiver_jni.cpp',
+    dependencies : [
+      boost_url_dep,
+      boost_thread_dep,
+      boost_chrono_dep,
+      boost_log_dep,
+      e2sar_dep,
+      jni_dep,
+      threads_dep,
+    ],
+    install : true,
+  )
+endif

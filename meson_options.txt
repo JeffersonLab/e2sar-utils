@@ -27,3 +27,9 @@ option('enable_ersap',
   value : true,
   description : 'Build ERSAP actors (requires ERSAP_HOME to be set)'
 )
+
+option('enable_jni',
+  type : 'boolean',
+  value : false,
+  description : 'Build the EJFAT receiver JNI bridge (requires JAVA_HOME to be set)'
+)
