@@ -17,12 +17,12 @@ cxx = meson.get_compiler('cpp')
 # Boost dependencies: program_options used by root-reader, others required by e2sar
 # Note: Boost doesn't provide .pc files, so we must declare them explicitly even though
 # e2sar.pc lists them in Requires (which pkg-config cannot resolve for Boost)
-boost_program_options_dep = dependency('boost', modules: ['program_options'], version : '>=1.89.0')
-boost_log_dep = dependency('boost', modules: ['log'], version : '>=1.89.0')
-boost_url_dep = dependency('boost', modules: ['url'], version : '>=1.89.0')
-boost_thread_dep = dependency('boost', modules: ['thread'], version : '>=1.89.0')
-boost_chrono_dep = dependency('boost', modules: ['chrono'], version : '>=1.89.0')
-boost_filesystem_dep = dependency('boost', modules: ['filesystem'], version : '>=1.89.0')
+boost_program_options_dep = dependency('boost', modules: ['program_options'], version : '>=1.83.0')
+boost_log_dep = dependency('boost', modules: ['log'], version : '>=1.83.0')
+boost_url_dep = dependency('boost', modules: ['url'], version : '>=1.83.0')
+boost_thread_dep = dependency('boost', modules: ['thread'], version : '>=1.83.0')
+boost_chrono_dep = dependency('boost', modules: ['chrono'], version : '>=1.83.0')
+boost_filesystem_dep = dependency('boost', modules: ['filesystem'], version : '>=1.83.0')
 threads_dep = dependency('threads')
 
 # Runtime dependencies
