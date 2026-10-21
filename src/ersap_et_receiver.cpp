@@ -301,6 +301,11 @@ bool receiveEvents(e2sar::Reassembler& reassembler, ETSystem& et) {
     auto last_progress = start_time;
 
     while (keep_receiving) {
+        // Reset output pointer before each call so an error path in recvEvent cannot
+        // leave a stale (already-freed) pointer in event_buffer that a later success
+        // would then double-free.
+        event_buffer = nullptr;
+
         // Receive event with 1000ms timeout
         auto result = reassembler.recvEvent(&event_buffer, &event_size,
                                            &event_num, &data_id, 1000);
@@ -315,12 +320,21 @@ bool receiveEvents(e2sar::Reassembler& reassembler, ETSystem& et) {
 
         // Check for errors
         if (result.has_error()) {
-            // Timeout or other error - continue
+            // Timeout or other error - continue. If recvEvent happened to populate a
+            // buffer before erroring, free it here so it doesn't leak.
+            if (event_buffer != nullptr) {
+                delete[] event_buffer;
+                event_buffer = nullptr;
+            }
             continue;
         }
 
         // No event available (timeout)
         if (result.value() == -1) {
+            if (event_buffer != nullptr) {
+                delete[] event_buffer;
+                event_buffer = nullptr;
+            }
             continue;
         }
 
