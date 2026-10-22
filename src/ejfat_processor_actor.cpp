@@ -15,6 +15,8 @@
  * as BYTES so it can be chained with other engines.
  */
 
+#include <cstdint>
+
 #include <ersap/engine.hpp>
 #include <ersap/engine_data.hpp>
 #include <ersap/engine_data_type.hpp>
@@ -22,7 +24,6 @@
 #include <ersap/third_party/json11.hpp>
 
 #include <atomic>
-#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <memory>

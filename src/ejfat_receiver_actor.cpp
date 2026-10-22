@@ -16,6 +16,8 @@
  * as raw bytes and surfaces on the Java side as a java.nio.ByteBuffer.
  */
 
+#include <cstdint>
+
 #include <e2sar.hpp>
 
 #include <ersap/engine.hpp>
@@ -28,7 +30,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <memory>
