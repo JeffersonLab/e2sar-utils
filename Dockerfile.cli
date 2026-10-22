@@ -121,6 +121,7 @@ FROM base-build AS compile
 
 ENV SRC_DIR=/src
 ENV CODA=/src/coda
+ENV ERSAP_HOME=/src/ersap
 WORKDIR $SRC_DIR
 
 # Copy source code
